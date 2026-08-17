@@ -32,7 +32,7 @@ import (
 //              ─────────────────
 //   total:     previewHeight + 10
 
-const fixedRows = 10 // all rows except the preview area
+const fixedRows = 9 // all rows except the preview area
 
 // App is the root Bubble Tea model.
 type App struct {
@@ -439,36 +439,11 @@ func renderTimeline(proj *model.Project, cursor float64, activeSeg, width int) s
 	}
 	markLine[toX(cursor)] = '▶'
 
-	// ── Line 3: segment strip (coloured blocks) ─────────────────────────────
+	// ── Line 3: segment strip with embedded labels ──────────────────────────
+	// Each segment block is coloured by speed/cut and its label
+	// (KEEP / CUT / ×N.NN) is written into the leading characters of the
+	// block itself, avoiding a separate row that collides with the ruler.
 	var strip strings.Builder
-	for i, s := range segs {
-		x0 := toX(s.Start)
-		x1 := toX(s.End)
-		if i == len(segs)-1 {
-			x1 = width // extend last segment to edge
-		}
-		w := x1 - x0
-		if w < 1 {
-			w = 1
-		}
-
-		var st lipgloss.Style
-		var ch string
-		if s.Op == model.Cut {
-			st = lipgloss.NewStyle().Foreground(th.Danger)
-			ch = "▒"
-		} else {
-			st = lipgloss.NewStyle().Foreground(lipgloss.Color(th.SpeedColorHex(s.Speed)))
-			ch = "█"
-		}
-		if i == activeSeg {
-			st = st.Reverse(true)
-		}
-		strip.WriteString(st.Render(strings.Repeat(ch, w)))
-	}
-
-	// ── Line 4: segment labels ───────────────────────────────────────────────
-	var labels strings.Builder
 	for i, s := range segs {
 		x0 := toX(s.Start)
 		x1 := toX(s.End)
@@ -480,35 +455,42 @@ func renderTimeline(proj *model.Project, cursor float64, activeSeg, width int) s
 			w = 1
 		}
 
+		var st lipgloss.Style
+		var fillCh string
+		if s.Op == model.Cut {
+			st = lipgloss.NewStyle().Foreground(th.Danger)
+			fillCh = "▒"
+		} else {
+			st = lipgloss.NewStyle().Foreground(lipgloss.Color(th.SpeedColorHex(s.Speed)))
+			fillCh = "█"
+		}
+		if i == activeSeg {
+			st = st.Reverse(true)
+		}
+
+		// Build the block content: label prefix + fill characters.
 		var label string
 		switch {
 		case s.Op == model.Cut:
-			label = "CUT"
+			label = " CUT "
 		case s.Speed != 1.0:
-			label = fmt.Sprintf("×%.2f", s.Speed)
+			label = fmt.Sprintf(" ×%.2f ", s.Speed)
 		default:
-			label = "KEEP"
+			label = " KEEP "
 		}
-		if len(label) < w {
-			label += strings.Repeat(" ", w-len(label))
-		} else if len(label) > w {
-			label = label[:w]
-		}
-
-		var st lipgloss.Style
-		if i == activeSeg {
-			st = lipgloss.NewStyle().Foreground(th.Accent).Bold(true)
+		var content string
+		if w <= len(label) {
+			content = label[:w] // truncate to fit
 		} else {
-			st = th.MutedS
+			content = label + strings.Repeat(fillCh, w-len(label))
 		}
-		labels.WriteString(st.Render(label))
+		strip.WriteString(st.Render(content))
 	}
 
 	return strings.Join([]string{
 		string(ruler),
 		string(markLine),
 		strip.String(),
-		labels.String(),
 	}, "\n")
 }
 
