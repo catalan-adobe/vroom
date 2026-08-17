@@ -278,7 +278,8 @@ func (a App) idealPreviewRows() int {
 	}
 	videoAR := float64(a.project.PixelW) / float64(a.project.PixelH)
 	const cellAR = 0.5 // cell width / cell height ≈ 8px/16px
-	rows := int(float64(a.width) * cellAR / videoAR)
+	// width-2: preview is inside a 1-char border on each side.
+	rows := int(float64(a.width-2) * cellAR / videoAR)
 	if rows < 3 {
 		return 3
 	}
@@ -313,9 +314,9 @@ func (a App) topPad() int {
 }
 
 // framePixelW/H: pixel dimensions for the extracted frame.
-// Sized to the preview area at ~8×16px per cell, capped to keep PNG small.
+// Uses width-2 to account for the 1-char border on each side of the preview.
 func (a App) framePixelW() int {
-	w := a.width * 8
+	w := (a.width - 2) * 8
 	if w > 1280 {
 		w = 1280
 	}
@@ -356,8 +357,8 @@ func (a App) sendFrameCmd(png []byte) tea.Cmd {
 	if pH < 2 || a.width < 4 {
 		return nil
 	}
-	// Preview area starts at row topPad+3 (padding + header + sep), col 1.
-	frame := render.Frame(png, a.width, pH, a.topPad()+3, 1)
+	// Preview is inside a 1-char border: col 2, width-2, row topPad+3.
+	frame := render.Frame(png, a.width-2, pH, a.topPad()+3, 2)
 	del := render.DeleteAll()
 	return tea.Sequence(tea.Raw(del), tea.Raw(frame))
 }
@@ -394,22 +395,32 @@ func (a App) render() string {
 
 	sep := th.DimS.Render(strings.Repeat("─", w))
 
-	// ── Preview area (blank — Kitty frame is sent via tea.Raw) ──────────────
-	emptyRow := strings.Repeat(" ", w)
+	// ── Preview area with rounded border ────────────────────────────────────
+	// The border characters are text (z=0) and render in front of the
+	// Kitty video frame (z=-1), giving a clean container with no bleed.
+	bStyle := th.MutedS
+	inner := w - 2
+	topBorder := bStyle.Render("╭" + strings.Repeat("─", inner) + "╮")
+	botBorder := bStyle.Render("╰" + strings.Repeat("─", inner) + "╯")
+	sideL := bStyle.Render("│")
+	sideR := bStyle.Render("│")
+	// Each preview row: side-border + spaces + side-border.
+	// Spaces are transparent to the Kitty layer — the video shows through.
+	innerRow := sideL + strings.Repeat(" ", inner) + sideR
 	previewLines := make([]string, pH)
 	for i := range previewLines {
-		previewLines[i] = emptyRow
+		previewLines[i] = innerRow
 	}
-	// On non-Kitty terminals, display a placeholder in the middle row.
 	if !a.kitty {
 		mid := pH / 2
-		label := th.MutedS.Render("[ video preview requires a Kitty-compatible terminal ]")
-		pad := (w - lipgloss.Width(label)) / 2
-		if pad < 0 {
-			pad = 0
+		label := "[ video preview requires a Kitty-compatible terminal ]"
+		if len(label) > inner {
+			label = label[:inner]
 		}
-		previewLines[mid] = strings.Repeat(" ", pad) + label +
-			strings.Repeat(" ", w-pad-lipgloss.Width(label))
+		pad := (inner - len(label)) / 2
+		previewLines[mid] = sideL + strings.Repeat(" ", pad) +
+			th.MutedS.Render(label) +
+			strings.Repeat(" ", inner-pad-len(label)) + sideR
 	}
 	preview := strings.Join(previewLines, "\n")
 
@@ -457,7 +468,7 @@ func (a App) render() string {
 	for range tPad {
 		parts = append(parts, padLine)
 	}
-	parts = append(parts, header, sep, preview, sep, timeline, sep, segInfo, hintBar)
+	parts = append(parts, header, topBorder, preview, botBorder, timeline, sep, segInfo, hintBar)
 	for range bPad {
 		parts = append(parts, padLine)
 	}
