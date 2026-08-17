@@ -5,3 +5,4 @@ dist/
 *.mkv
 *.webm
 !testdata/
+vroom
