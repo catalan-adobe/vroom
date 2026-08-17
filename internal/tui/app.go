@@ -22,18 +22,23 @@ import (
 //
 // Screen layout (top → bottom):
 //
+//   topPad     (variable — centers UI vertically)
 //   header     (1 row)
 //   separator  (1 row)
-//   preview    (previewHeight rows) ← Kitty frame rendered via tea.Raw
+//   preview    (previewHeight rows) ← Kitty frame at row topPad+3
 //   separator  (1 row)
-//   timeline   (4 rows: ruler / marks / segment strip / segment labels)
+//   timeline   (3 rows: ruler / marks / segment strip)
 //   separator  (1 row)
 //   segInfo    (1 row)
 //   hintBar    (1 row)
+//   bottomPad  (variable)
 //              ─────────────────
-//   total:     previewHeight + 10
+//   total:     height (exact)
 
-const fixedRows = 9 // all rows except the preview area
+const (
+	fixedRows      = 9  // rows excluding preview and padding
+	maxPreviewRows = 20 // hard cap: preview never taller than this
+)
 
 // App is the root Bubble Tea model.
 type App struct {
@@ -263,17 +268,52 @@ func (a App) segAtCursor() int {
 	return 0
 }
 
-// previewHeight is the number of rows the video preview occupies.
-func (a App) previewHeight() int {
-	h := a.height - fixedRows
-	if h < 3 {
-		h = 3
+// idealPreviewRows returns the number of rows required to display the video
+// at its native aspect ratio given the current terminal width.
+// Terminal cells are assumed ~0.5 wide:tall (8×16 px typical), so a column
+// maps to half a pixel-row in aspect-ratio terms.
+func (a App) idealPreviewRows() int {
+	if a.project.PixelW == 0 || a.project.PixelH == 0 || a.width == 0 {
+		return maxPreviewRows
 	}
-	return h
+	videoAR := float64(a.project.PixelW) / float64(a.project.PixelH)
+	const cellAR = 0.5 // cell width / cell height ≈ 8px/16px
+	rows := int(float64(a.width) * cellAR / videoAR)
+	if rows < 3 {
+		return 3
+	}
+	if rows > maxPreviewRows {
+		return maxPreviewRows
+	}
+	return rows
+}
+
+// previewHeight returns the clamped preview row count:
+// ideal aspect-ratio rows, bounded by maxPreviewRows and available space.
+func (a App) previewHeight() int {
+	ideal := a.idealPreviewRows()
+	avail := a.height - fixedRows
+	if avail < 3 {
+		avail = 3
+	}
+	if ideal > avail {
+		return avail
+	}
+	return ideal
+}
+
+// topPad returns the number of blank rows to add above the UI so that
+// the content is vertically centred in the terminal.
+func (a App) topPad() int {
+	uiH := a.previewHeight() + fixedRows
+	if uiH >= a.height {
+		return 0
+	}
+	return (a.height - uiH) / 2
 }
 
 // framePixelW/H: pixel dimensions for the extracted frame.
-// Assuming ~8px wide × ~16px tall cells; keeps PNG small for fast PTY transfer.
+// Sized to the preview area at ~8×16px per cell, capped to keep PNG small.
 func (a App) framePixelW() int {
 	w := a.width * 8
 	if w > 1280 {
@@ -316,8 +356,8 @@ func (a App) sendFrameCmd(png []byte) tea.Cmd {
 	if pH < 2 || a.width < 4 {
 		return nil
 	}
-	// Preview area starts at terminal row 3 (1 header + 1 sep), col 1.
-	frame := render.Frame(png, a.width, pH, 3, 1)
+	// Preview area starts at row topPad+3 (padding + header + sep), col 1.
+	frame := render.Frame(png, a.width, pH, a.topPad()+3, 1)
 	del := render.DeleteAll()
 	return tea.Sequence(tea.Raw(del), tea.Raw(frame))
 }
@@ -325,12 +365,18 @@ func (a App) sendFrameCmd(png []byte) tea.Cmd {
 // ─── Render ───────────────────────────────────────────────────────────────────
 
 func (a App) render() string {
-	if a.width == 0 {
+	if a.width == 0 || a.height == 0 {
 		return "loading…"
 	}
 
 	w := a.width
 	segs := a.project.Segments()
+	pH := a.previewHeight()
+	tPad := a.topPad()
+	bPad := a.height - pH - fixedRows - tPad
+	if bPad < 0 {
+		bPad = 0
+	}
 
 	// ── Header ──────────────────────────────────────────────────────────────
 	title := th.AccentS.Render("vroom") + "  " +
@@ -349,7 +395,6 @@ func (a App) render() string {
 	sep := th.DimS.Render(strings.Repeat("─", w))
 
 	// ── Preview area (blank — Kitty frame is sent via tea.Raw) ──────────────
-	pH := a.previewHeight()
 	emptyRow := strings.Repeat(" ", w)
 	previewLines := make([]string, pH)
 	for i := range previewLines {
@@ -406,16 +451,17 @@ func (a App) render() string {
 	segInfo = padToWidth(segInfo, w)
 	hintBar = padToWidth(hintBar, w)
 
-	return strings.Join([]string{
-		header,
-		sep,
-		preview,
-		sep,
-		timeline,
-		sep,
-		segInfo,
-		hintBar,
-	}, "\n")
+	// Build padding rows (full-width spaces so they overwrite stale cells).
+	padLine := strings.Repeat(" ", w)
+	parts := make([]string, 0, a.height)
+	for range tPad {
+		parts = append(parts, padLine)
+	}
+	parts = append(parts, header, sep, preview, sep, timeline, sep, segInfo, hintBar)
+	for range bPad {
+		parts = append(parts, padLine)
+	}
+	return strings.Join(parts, "\n")
 }
 
 // padToWidth pads a (possibly ANSI-styled) string to exactly w visible
