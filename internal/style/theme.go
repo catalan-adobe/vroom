@@ -3,7 +3,6 @@ package style
 
 import (
 	"fmt"
-	"image/color"
 	"math"
 
 	"charm.land/lipgloss/v2"
@@ -37,7 +36,9 @@ var (
 //
 // A slight non-linear ramp (t^0.7) is applied so even small speed
 // changes produce a visible colour shift.
-func SpeedColor(speed float64) color.Color {
+// SpeedColorHex returns a hex colour string for the given speed multiplier.
+// Call lipgloss.Color(th.SpeedColorHex(s)) to use as a lipgloss foreground.
+func SpeedColorHex(speed float64) string {
 	const (
 		nR, nG, nB = 0xAA, 0xAA, 0xAA // neutral  #AAAAAA
 		sR, sG, sB = 0xFF, 0x66, 0x00  // slow max #FF6600
@@ -57,21 +58,21 @@ func SpeedColor(speed float64) color.Color {
 	case speed < 1.0:
 		t := math.Min((1.0-speed)/0.75, 1.0)
 		t = math.Pow(t, 0.7)
-		return lipgloss.Color(fmt.Sprintf("#%02X%02X%02X",
+			return fmt.Sprintf("#%02X%02X%02X",
 			clampLerp(nR, sR, t),
 			clampLerp(nG, sG, t),
 			clampLerp(nB, sB, t),
-		))
+		)
 	case speed > 1.0:
 		t := math.Min((speed-1.0)/3.0, 1.0)
 		t = math.Pow(t, 0.7)
-		return lipgloss.Color(fmt.Sprintf("#%02X%02X%02X",
+		return fmt.Sprintf("#%02X%02X%02X",
 			clampLerp(nR, fR, t),
 			clampLerp(nG, fG, t),
 			clampLerp(nB, fB, t),
-		))
+		)
 	default:
-		return lipgloss.Color("#AAAAAA")
+		return "#AAAAAA"
 	}
 }
 

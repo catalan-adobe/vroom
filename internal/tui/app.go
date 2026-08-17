@@ -458,7 +458,7 @@ func renderTimeline(proj *model.Project, cursor float64, activeSeg, width int) s
 			st = lipgloss.NewStyle().Foreground(th.Danger)
 			ch = "▒"
 		} else {
-			st = lipgloss.NewStyle().Foreground(th.SpeedColor(s.Speed))
+			st = lipgloss.NewStyle().Foreground(lipgloss.Color(th.SpeedColorHex(s.Speed)))
 			ch = "█"
 		}
 		if i == activeSeg {
