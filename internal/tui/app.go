@@ -496,7 +496,12 @@ func renderTimeline(proj *model.Project, cursor float64, activeSeg, width int) s
 			}
 		}
 
+		// Width(w) is essential: lipgloss v2 strips trailing whitespace from
+		// styled content, leaving transparent cells where old terminal content
+		// bleeds through. Setting Width forces it to fill ALL w cells with the
+		// background colour, including the padding after the label text.
 		st := lipgloss.NewStyle().
+			Width(w).
 			Background(lipgloss.Color(bgHex)).
 			Foreground(lipgloss.Color(fgHex))
 		if i == activeSeg {
@@ -507,7 +512,7 @@ func renderTimeline(proj *model.Project, cursor float64, activeSeg, width int) s
 		if w <= len(label) {
 			content = label[:w]
 		} else {
-			content = label + strings.Repeat(" ", w-len(label))
+			content = label // Width(w) pads the rest with background-coloured spaces
 		}
 		strip.WriteString(st.Render(content))
 	}
