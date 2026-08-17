@@ -3,6 +3,8 @@ package style
 
 import (
 	"fmt"
+	"image/color"
+	"math"
 
 	"charm.land/lipgloss/v2"
 )
@@ -26,6 +28,52 @@ var (
 	BoldS   = lipgloss.NewStyle().Bold(true)
 	DangerS = lipgloss.NewStyle().Foreground(Danger).Bold(true)
 )
+
+// SpeedColor returns a terminal colour for the given speed multiplier.
+//
+//	1.0       → neutral gray  (#AAAAAA)
+//	< 1.0     → orange, more saturated the slower  (0.25× = #FF6600)
+//	> 1.0     → green, more saturated the faster   (4×   = #00EE55)
+//
+// A slight non-linear ramp (t^0.7) is applied so even small speed
+// changes produce a visible colour shift.
+func SpeedColor(speed float64) color.Color {
+	const (
+		nR, nG, nB = 0xAA, 0xAA, 0xAA // neutral  #AAAAAA
+		sR, sG, sB = 0xFF, 0x66, 0x00  // slow max #FF6600
+		fR, fG, fB = 0x00, 0xEE, 0x55  // fast max #00EE55
+	)
+	clampLerp := func(a, b int, t float64) int {
+		v := float64(a) + t*float64(b-a)
+		if v < 0 {
+			return 0
+		}
+		if v > 255 {
+			return 255
+		}
+		return int(v + 0.5)
+	}
+	switch {
+	case speed < 1.0:
+		t := math.Min((1.0-speed)/0.75, 1.0)
+		t = math.Pow(t, 0.7)
+		return lipgloss.Color(fmt.Sprintf("#%02X%02X%02X",
+			clampLerp(nR, sR, t),
+			clampLerp(nG, sG, t),
+			clampLerp(nB, sB, t),
+		))
+	case speed > 1.0:
+		t := math.Min((speed-1.0)/3.0, 1.0)
+		t = math.Pow(t, 0.7)
+		return lipgloss.Color(fmt.Sprintf("#%02X%02X%02X",
+			clampLerp(nR, fR, t),
+			clampLerp(nG, fG, t),
+			clampLerp(nB, fB, t),
+		))
+	default:
+		return lipgloss.Color("#AAAAAA")
+	}
+}
 
 // FormatTime formats seconds as M:SS.d (e.g. "1:23.4").
 func FormatTime(sec float64) string {

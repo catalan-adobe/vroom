@@ -454,15 +454,11 @@ func renderTimeline(proj *model.Project, cursor float64, activeSeg, width int) s
 
 		var st lipgloss.Style
 		var ch string
-		switch {
-		case s.Op == model.Cut:
+		if s.Op == model.Cut {
 			st = lipgloss.NewStyle().Foreground(th.Danger)
 			ch = "▒"
-		case s.Speed != 1.0:
-			st = lipgloss.NewStyle().Foreground(th.Warning)
-			ch = "▓"
-		default:
-			st = lipgloss.NewStyle().Foreground(th.Success)
+		} else {
+			st = lipgloss.NewStyle().Foreground(th.SpeedColor(s.Speed))
 			ch = "█"
 		}
 		if i == activeSeg {
