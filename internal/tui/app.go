@@ -455,42 +455,53 @@ func renderTimeline(proj *model.Project, cursor float64, activeSeg, width int) s
 			w = 1
 		}
 
-		var st lipgloss.Style
-		var fillCh string
+		// Solid background bar: spaces fill the width, label sits at the left.
+		// Using Background() instead of Foreground()+block-chars means the
+		// entire cell is painted, preventing old content from bleeding through.
+		var bgHex, fgHex string
+		var label string
 		if s.Op == model.Cut {
-			st = lipgloss.NewStyle().Foreground(th.Danger)
-			fillCh = "▒"
+			bgHex = "#882233" // dark crimson
+			fgHex = "#FFFFFF" // white text — enough contrast on dark red
+			label = " CUT "
 		} else {
-			st = lipgloss.NewStyle().Foreground(lipgloss.Color(th.SpeedColorHex(s.Speed)))
-			fillCh = "█"
-		}
-		if i == activeSeg {
-			st = st.Reverse(true)
+			bgHex = th.SpeedColorHex(s.Speed)
+			fgHex = "#111111" // dark text on any speed colour
+			if s.Speed != 1.0 {
+				label = fmt.Sprintf(" ×%.2f ", s.Speed)
+			} else {
+				label = " KEEP "
+			}
 		}
 
-		// Build the block content: label prefix + fill characters.
-		var label string
-		switch {
-		case s.Op == model.Cut:
-			label = " CUT "
-		case s.Speed != 1.0:
-			label = fmt.Sprintf(" ×%.2f ", s.Speed)
-		default:
-			label = " KEEP "
+		st := lipgloss.NewStyle().
+			Background(lipgloss.Color(bgHex)).
+			Foreground(lipgloss.Color(fgHex))
+		if i == activeSeg {
+			st = st.Bold(true)
 		}
+
 		var content string
 		if w <= len(label) {
-			content = label[:w] // truncate to fit
+			content = label[:w]
 		} else {
-			content = label + strings.Repeat(fillCh, w-len(label))
+			content = label + strings.Repeat(" ", w-len(label))
 		}
 		strip.WriteString(st.Render(content))
+	}
+
+	// Pad the strip to exactly `width` visible columns so that any leftover
+	// content from a previous render (shorter strip) is fully overwritten.
+	stripStr := strip.String()
+	stripVW := lipgloss.Width(stripStr)
+	if stripVW < width {
+		stripStr += strings.Repeat(" ", width-stripVW)
 	}
 
 	return strings.Join([]string{
 		string(ruler),
 		string(markLine),
-		strip.String(),
+		stripStr,
 	}, "\n")
 }
 
