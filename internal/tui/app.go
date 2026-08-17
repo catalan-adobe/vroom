@@ -85,8 +85,13 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		a.width = msg.Width
 		a.height = msg.Height
-		return a, extractFrameCmd(a.project.VideoPath, a.cursor,
-			a.framePixelW(), a.framePixelH())
+		// Force a full repaint so stale cells from the old layout are
+		// completely overwritten before the new frame arrives.
+		return a, tea.Batch(
+			tea.ClearScreen,
+			extractFrameCmd(a.project.VideoPath, a.cursor,
+				a.framePixelW(), a.framePixelH()),
+		)
 
 	case tea.KeyPressMsg:
 		return a.handleKey(msg)
@@ -384,6 +389,12 @@ func (a App) render() string {
 		)
 	}
 
+	// Pad short lines to the full terminal width so stale characters from a
+	// previous render (different layout or different content length) are
+	// completely overwritten and never bleed through.
+	segInfo = padToWidth(segInfo, w)
+	hintBar = padToWidth(hintBar, w)
+
 	return strings.Join([]string{
 		header,
 		sep,
@@ -394,6 +405,17 @@ func (a App) render() string {
 		segInfo,
 		hintBar,
 	}, "\n")
+}
+
+// padToWidth pads a (possibly ANSI-styled) string to exactly w visible
+// columns by appending plain spaces. If the string is already wider, it
+// is returned unchanged.
+func padToWidth(s string, w int) string {
+	vw := lipgloss.Width(s)
+	if vw < w {
+		return s + strings.Repeat(" ", w-vw)
+	}
+	return s
 }
 
 // ─── Timeline renderer ────────────────────────────────────────────────────────
@@ -490,13 +512,11 @@ func renderTimeline(proj *model.Project, cursor float64, activeSeg, width int) s
 		strip.WriteString(st.Render(content))
 	}
 
-	// Pad the strip to exactly `width` visible columns so that any leftover
-	// content from a previous render (shorter strip) is fully overwritten.
+	// The segment widths sum to exactly `width` (segments partition [0,width]
+	// without gaps), so no padding is needed — and using lipgloss.Width on an
+	// ANSI-background string returns the wrong value, which caused the strip
+	// to double-wrap and appear in the wrong terminal row.
 	stripStr := strip.String()
-	stripVW := lipgloss.Width(stripStr)
-	if stripVW < width {
-		stripStr += strings.Repeat(" ", width-stripVW)
-	}
 
 	return strings.Join([]string{
 		string(ruler),
