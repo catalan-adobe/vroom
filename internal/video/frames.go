@@ -7,10 +7,11 @@ import (
 )
 
 // ExtractFrame extracts one frame at time t (seconds) from path,
-// scaled to targetW×targetH pixels, and returns it as PNG bytes.
+// scaled to targetH pixels tall with aspect ratio preserved (-2 rounds
+// the auto-computed width to an even number as required by most codecs).
 // Uses ffmpeg via shell-out.
-func ExtractFrame(path string, t float64, targetW, targetH int) ([]byte, error) {
-	scale := fmt.Sprintf("scale=%d:%d", targetW, targetH)
+func ExtractFrame(path string, t float64, targetH int) ([]byte, error) {
+	scale := fmt.Sprintf("scale=-2:%d", targetH)
 	var buf bytes.Buffer
 	cmd := exec.Command(
 		"ffmpeg", "-v", "quiet",

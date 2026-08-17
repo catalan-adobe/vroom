@@ -96,7 +96,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, tea.Batch(
 			tea.ClearScreen,
 			extractFrameCmd(a.project.VideoPath, a.cursor,
-				a.framePixelW(), a.framePixelH()),
+				a.framePixelH()),
 		)
 
 	case tea.KeyPressMsg:
@@ -117,7 +117,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return a, tea.Batch(rawCmd,
 				extractFrameCmd(a.project.VideoPath, a.cursor,
-					a.framePixelW(), a.framePixelH()))
+					a.framePixelH()))
 		}
 		return a, rawCmd
 
@@ -173,7 +173,7 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return a, tea.Batch(
 			tea.ClearScreen,
 			extractFrameCmd(a.project.VideoPath, a.cursor,
-				a.framePixelW(), a.framePixelH()),
+				a.framePixelH()),
 		)
 
 	case key.Matches(msg, a.keys.DelMark):
@@ -182,7 +182,7 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return a, tea.Batch(
 			tea.ClearScreen,
 			extractFrameCmd(a.project.VideoPath, a.cursor,
-				a.framePixelW(), a.framePixelH()),
+				a.framePixelH()),
 		)
 
 	case key.Matches(msg, a.keys.NextSeg):
@@ -191,7 +191,7 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			a.activeSeg++
 			a.cursor = segs[a.activeSeg].Start
 			return a, extractFrameCmd(a.project.VideoPath, a.cursor,
-				a.framePixelW(), a.framePixelH())
+				a.framePixelH())
 		}
 		return a, nil
 
@@ -201,7 +201,7 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			segs := a.project.Segments()
 			a.cursor = segs[a.activeSeg].Start
 			return a, extractFrameCmd(a.project.VideoPath, a.cursor,
-				a.framePixelW(), a.framePixelH())
+				a.framePixelH())
 		}
 		return a, nil
 
@@ -221,7 +221,7 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		a.playing = !a.playing
 		if a.playing {
 			return a, extractFrameCmd(a.project.VideoPath, a.cursor,
-				a.framePixelW(), a.framePixelH())
+				a.framePixelH())
 		}
 		return a, nil
 
@@ -252,7 +252,7 @@ func (a App) seek(delta float64) (App, tea.Cmd) {
 	}
 	a.activeSeg = a.segAtCursor()
 	return a, extractFrameCmd(a.project.VideoPath, a.cursor,
-		a.framePixelW(), a.framePixelH())
+		a.framePixelH())
 }
 
 func (a App) segAtCursor() int {
@@ -268,43 +268,63 @@ func (a App) segAtCursor() int {
 	return 0
 }
 
-// idealPreviewRows returns the number of rows required to display the video
-// at its native aspect ratio given the current terminal width.
-// Terminal cells are assumed ~0.5 wide:tall (8×16 px typical), so a column
-// maps to half a pixel-row in aspect-ratio terms.
-func (a App) idealPreviewRows() int {
-	if a.project.PixelW == 0 || a.project.PixelH == 0 || a.width == 0 {
-		return maxPreviewRows
+// previewDims returns (rows, cols) for the inner preview area.
+//
+// rows: ideal for the video AR capped at maxPreviewRows and available space.
+// cols: computed from rows to match the video AR, capped at terminal width-2.
+//
+// Terminal cells are assumed ~0.5 wide:tall (8×16 px), so:
+//
+//	rows = termCols × cellAR / videoAR
+//	cols = rows    × videoAR / cellAR
+func (a App) previewDims() (rows, cols int) {
+	const cellAR = 0.5
+	maxCols := a.width - 2
+	if maxCols < 4 {
+		maxCols = 4
 	}
-	videoAR := float64(a.project.PixelW) / float64(a.project.PixelH)
-	const cellAR = 0.5 // cell width / cell height ≈ 8px/16px
-	// width-2: preview is inside a 1-char border on each side.
-	rows := int(float64(a.width-2) * cellAR / videoAR)
-	if rows < 3 {
-		return 3
-	}
-	if rows > maxPreviewRows {
-		return maxPreviewRows
-	}
-	return rows
-}
 
-// previewHeight returns the clamped preview row count:
-// ideal aspect-ratio rows, bounded by maxPreviewRows and available space.
-func (a App) previewHeight() int {
-	ideal := a.idealPreviewRows()
+	videoAR := 16.0 / 9.0 // sensible default
+	if a.project.PixelW > 0 && a.project.PixelH > 0 {
+		videoAR = float64(a.project.PixelW) / float64(a.project.PixelH)
+	}
+
+	// Rows: how many rows does the video need at full terminal width?
+	idealRows := int(float64(maxCols) * cellAR / videoAR)
+	if idealRows < 3 {
+		idealRows = 3
+	}
+	if idealRows > maxPreviewRows {
+		idealRows = maxPreviewRows
+	}
 	avail := a.height - fixedRows
 	if avail < 3 {
 		avail = 3
 	}
-	if ideal > avail {
-		return avail
+	if idealRows > avail {
+		idealRows = avail
 	}
-	return ideal
+	rows = idealRows
+
+	// Cols: given the row count, how wide must the box be for the video AR?
+	idealCols := int(float64(rows) * videoAR / cellAR)
+	if idealCols > maxCols {
+		idealCols = maxCols
+	}
+	if idealCols < 4 {
+		idealCols = 4
+	}
+	cols = idealCols
+	return
 }
 
-// topPad returns the number of blank rows to add above the UI so that
-// the content is vertically centred in the terminal.
+// previewHeight is the row count of the preview (for layout accounting).
+func (a App) previewHeight() int {
+	rows, _ := a.previewDims()
+	return rows
+}
+
+// topPad returns blank rows above the UI for vertical centering.
 func (a App) topPad() int {
 	uiH := a.previewHeight() + fixedRows
 	if uiH >= a.height {
@@ -313,18 +333,11 @@ func (a App) topPad() int {
 	return (a.height - uiH) / 2
 }
 
-// framePixelW/H: pixel dimensions for the extracted frame.
-// Uses width-2 to account for the 1-char border on each side of the preview.
-func (a App) framePixelW() int {
-	w := (a.width - 2) * 8
-	if w > 1280 {
-		w = 1280
-	}
-	return w
-}
-
+// framePixelH is the pixel height for ffmpeg frame extraction.
+// We only constrain height; ffmpeg preserves the AR automatically.
 func (a App) framePixelH() int {
-	h := a.previewHeight() * 16
+	rows, _ := a.previewDims()
+	h := rows * 16
 	if h > 720 {
 		h = 720
 	}
@@ -333,9 +346,9 @@ func (a App) framePixelH() int {
 
 // ─── Commands ─────────────────────────────────────────────────────────────────
 
-func extractFrameCmd(path string, t float64, pw, ph int) tea.Cmd {
+func extractFrameCmd(path string, t float64, ph int) tea.Cmd {
 	return func() tea.Msg {
-		png, err := video.ExtractFrame(path, t, pw, ph)
+		png, err := video.ExtractFrame(path, t, ph)
 		return frameMsg{png: png, t: t, err: err}
 	}
 }
@@ -357,8 +370,10 @@ func (a App) sendFrameCmd(png []byte) tea.Cmd {
 	if pH < 2 || a.width < 4 {
 		return nil
 	}
-	// Preview is inside a 1-char border: col 2, width-2, row topPad+3.
-	frame := render.Frame(png, a.width-2, pH, a.topPad()+3, 2)
+	_, pW := a.previewDims()
+	boxLeft := (a.width - pW - 2) / 2 // centre the box horizontally
+	// Frame inside the border: col = boxLeft+2 (1-indexed), row = topPad+3.
+	frame := render.Frame(png, pW, pH, a.topPad()+3, boxLeft+2)
 	del := render.DeleteAll()
 	return tea.Sequence(tea.Raw(del), tea.Raw(frame))
 }
@@ -372,7 +387,7 @@ func (a App) render() string {
 
 	w := a.width
 	segs := a.project.Segments()
-	pH := a.previewHeight()
+	pH, pW := a.previewDims()
 	tPad := a.topPad()
 	bPad := a.height - pH - fixedRows - tPad
 	if bPad < 0 {
@@ -395,32 +410,42 @@ func (a App) render() string {
 
 	sep := th.DimS.Render(strings.Repeat("─", w))
 
-	// ── Preview area with rounded border ────────────────────────────────────
-	// The border characters are text (z=0) and render in front of the
-	// Kitty video frame (z=-1), giving a clean container with no bleed.
+	// ── Preview area: centred box sized to the video aspect ratio ───────────
+	// The box is pW cols wide (inner), centred in the terminal.
+	// Border characters are text (z=0), so they render in front of the
+	// Kitty frame (z=-1), giving a clean visible container.
 	bStyle := th.MutedS
-	inner := w - 2
-	topBorder := bStyle.Render("╭" + strings.Repeat("─", inner) + "╮")
-	botBorder := bStyle.Render("╰" + strings.Repeat("─", inner) + "╯")
+	boxW := pW + 2
+	boxLeft := (w - boxW) / 2
+	if boxLeft < 0 {
+		boxLeft = 0
+	}
+	boxRight := boxLeft + boxW
+	rightPadW := w - boxRight
+	if rightPadW < 0 {
+		rightPadW = 0
+	}
+	lPad := strings.Repeat(" ", boxLeft)
+	rPad := strings.Repeat(" ", rightPadW)
 	sideL := bStyle.Render("│")
 	sideR := bStyle.Render("│")
-	// Each preview row: side-border + spaces + side-border.
-	// Spaces are transparent to the Kitty layer — the video shows through.
-	innerRow := sideL + strings.Repeat(" ", inner) + sideR
+	topBorder := lPad + bStyle.Render("╭"+strings.Repeat("─", pW)+"╮") + rPad
+	botBorder := lPad + bStyle.Render("╰"+strings.Repeat("─", pW)+"╯") + rPad
+	innerRow := lPad + sideL + strings.Repeat(" ", pW) + sideR + rPad
 	previewLines := make([]string, pH)
 	for i := range previewLines {
 		previewLines[i] = innerRow
 	}
 	if !a.kitty {
 		mid := pH / 2
-		label := "[ video preview requires a Kitty-compatible terminal ]"
-		if len(label) > inner {
-			label = label[:inner]
+		label := "[ Kitty / WezTerm / Ghostty required for video preview ]"
+		if len(label) > pW {
+			label = label[:pW]
 		}
-		pad := (inner - len(label)) / 2
-		previewLines[mid] = sideL + strings.Repeat(" ", pad) +
-			th.MutedS.Render(label) +
-			strings.Repeat(" ", inner-pad-len(label)) + sideR
+		pad := (pW - len(label)) / 2
+		previewLines[mid] = lPad + sideL +
+			strings.Repeat(" ", pad) + th.MutedS.Render(label) +
+			strings.Repeat(" ", pW-pad-len(label)) + sideR + rPad
 	}
 	preview := strings.Join(previewLines, "\n")
 
