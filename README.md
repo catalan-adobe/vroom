@@ -7,20 +7,29 @@ Built with [Go](https://go.dev) + [Bubble Tea](https://github.com/charmbracelet/
 ## Demo
 
 ```
-vedit  demo.mp4                                        [0:05.2 / 0:26.3]
+vroom  demo.mp4                                        [0:08.1 / 0:26.3]
 ────────────────────────────────────────────────────────────────────────
 │                                                                       │
 │                     (video frame preview)                             │
+│                    Kitty / WezTerm / Ghostty                          │
 │                                                                       │
 ────────────────────────────────────────────────────────────────────────
-0:00.0        0:05.2       0:10.5       0:15.7       0:21.0      0:26.3
-─────────────────│──────────────────────────────────────────────────────
-████████████████▒▒▒▒▒▒▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓████████████████████████████████
-KEEP             CUT   ×2.00            KEEP
+0:00.0          0:05.2          0:10.5          0:15.7          0:21.0
+─────────────────│───────────────│────────────────│─────────────────────▶
+ KEEP            ░ ×0.50         ░ CUT            ░ ×2.00               
 ────────────────────────────────────────────────────────────────────────
-  Seg 1/4  0:00.0–0:05.2  KEEP  speed: ×1.00
+  Seg 3/4  0:05.2–0:10.5  ×0.50  speed: ×0.50
   ← →: seek  h l: jump 5s  m: mark  M: del  tab: seg  c: cut  +/−: speed  space: play  e: export  q: quit
 ```
+
+The segment strip is colour-coded by speed:
+
+| Colour | Meaning |
+|--------|---------|
+| 🟤 orange → red | Slower than real-time (`×0.25` – `×0.99`) |
+| ⬜ gray | Normal speed (`×1.00`, keep) |
+| 🟢 green | Faster than real-time (`×1.01` – `×4.00`) |
+| 🔴 dark red | Cut (excluded from output) |
 
 ## Requirements
 
