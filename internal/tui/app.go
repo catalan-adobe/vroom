@@ -4,6 +4,7 @@ package tui
 import (
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -162,12 +163,22 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, a.keys.AddMark):
 		a.project.AddMark(a.cursor)
 		a.activeSeg = a.segAtCursor()
-		return a, nil
+		// ClearScreen wipes stale cells from any previous layout so the
+		// timeline always redraws cleanly after a segment count change.
+		return a, tea.Batch(
+			tea.ClearScreen,
+			extractFrameCmd(a.project.VideoPath, a.cursor,
+				a.framePixelW(), a.framePixelH()),
+		)
 
 	case key.Matches(msg, a.keys.DelMark):
 		a.project.RemoveMark(a.cursor)
 		a.activeSeg = a.segAtCursor()
-		return a, nil
+		return a, tea.Batch(
+			tea.ClearScreen,
+			extractFrameCmd(a.project.VideoPath, a.cursor,
+				a.framePixelW(), a.framePixelH()),
+		)
 
 	case key.Matches(msg, a.keys.NextSeg):
 		segs := a.project.Segments()
@@ -418,6 +429,46 @@ func padToWidth(s string, w int) string {
 	return s
 }
 
+// segBlock renders a w-column background-coloured terminal cell block with
+// label text left-aligned inside it. Uses raw ANSI escape codes so the
+// output width is always exactly w columns regardless of w's size.
+func segBlock(bgHex, fgHex string, w int, label string, bold bool) string {
+	if w <= 0 {
+		return ""
+	}
+	// Truncate or pad the label to exactly w rune columns.
+	lr := []rune(label)
+	var content string
+	if len(lr) >= w {
+		content = string(lr[:w])
+	} else {
+		content = string(lr) + strings.Repeat(" ", w-len(lr))
+	}
+	bgR, bgG, bgB := hexRGB(bgHex)
+	fgR, fgG, fgB := hexRGB(fgHex)
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "\x1b[48;2;%d;%d;%dm\x1b[38;2;%d;%d;%dm",
+		bgR, bgG, bgB, fgR, fgG, fgB)
+	if bold {
+		sb.WriteString("\x1b[1m")
+	}
+	sb.WriteString(content)
+	sb.WriteString("\x1b[0m")
+	return sb.String()
+}
+
+// hexRGB parses a "#RRGGBB" hex colour string into its R, G, B components.
+func hexRGB(hex string) (int, int, int) {
+	hex = strings.TrimPrefix(hex, "#")
+	if len(hex) != 6 {
+		return 170, 170, 170
+	}
+	r, _ := strconv.ParseInt(hex[0:2], 16, 32)
+	g, _ := strconv.ParseInt(hex[2:4], 16, 32)
+	b, _ := strconv.ParseInt(hex[4:6], 16, 32)
+	return int(r), int(g), int(b)
+}
+
 // ─── Timeline renderer ────────────────────────────────────────────────────────
 
 func renderTimeline(proj *model.Project, cursor float64, activeSeg, width int) string {
@@ -496,25 +547,11 @@ func renderTimeline(proj *model.Project, cursor float64, activeSeg, width int) s
 			}
 		}
 
-		// Width(w) is essential: lipgloss v2 strips trailing whitespace from
-		// styled content, leaving transparent cells where old terminal content
-		// bleeds through. Setting Width forces it to fill ALL w cells with the
-		// background colour, including the padding after the label text.
-		st := lipgloss.NewStyle().
-			Width(w).
-			Background(lipgloss.Color(bgHex)).
-			Foreground(lipgloss.Color(fgHex))
-		if i == activeSeg {
-			st = st.Bold(true)
-		}
-
-		var content string
-		if w <= len(label) {
-			content = label[:w]
-		} else {
-			content = label // Width(w) pads the rest with background-coloured spaces
-		}
-		strip.WriteString(st.Render(content))
+		// Use raw ANSI codes instead of lipgloss for each block.
+		// lipgloss Width(w) misbehaves at small values (1-3 cols), producing
+		// lines that wrap or leave transparent cells. Direct escape sequences
+		// are fully predictable at every width.
+		strip.WriteString(segBlock(bgHex, fgHex, w, label, i == activeSeg))
 	}
 
 	// The segment widths sum to exactly `width` (segments partition [0,width]
