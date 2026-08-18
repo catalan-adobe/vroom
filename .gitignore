@@ -6,3 +6,5 @@ dist/
 *.webm
 !testdata/
 vroom
+# .vroom files are user-local project saves; not committed
+*.vroom

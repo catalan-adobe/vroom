@@ -15,6 +15,7 @@ type keyMap struct {
 	SpeedUp      key.Binding
 	SpeedDown    key.Binding
 	PlayPause    key.Binding
+	Save         key.Binding
 	Export       key.Binding
 	Quit         key.Binding
 }
@@ -33,7 +34,8 @@ func defaultKeyMap() keyMap {
 		SpeedUp:      key.NewBinding(key.WithKeys("+", "="),  key.WithHelp("+", "faster")),
 		SpeedDown:    key.NewBinding(key.WithKeys("-"),        key.WithHelp("-", "slower")),
 		PlayPause:    key.NewBinding(key.WithKeys("space"),    key.WithHelp("space", "play/pause")),
-		Export:       key.NewBinding(key.WithKeys("e"),        key.WithHelp("e", "export")),
+		Save:         key.NewBinding(key.WithKeys("s"),         key.WithHelp("s", "save")),
+		Export:       key.NewBinding(key.WithKeys("e"),         key.WithHelp("e", "export")),
 		Quit:         key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 	}
 }

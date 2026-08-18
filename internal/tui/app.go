@@ -223,6 +223,17 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 
+	case key.Matches(msg, a.keys.Save):
+		sp := model.SavePath(a.project.VideoPath)
+		if err := a.project.Save(sp); err != nil {
+			a.statusMsg = "Save failed: " + err.Error()
+		} else {
+			a.statusMsg = "Saved → " + filepath.Base(sp)
+		}
+		return a, tea.Tick(3*time.Second, func(_ time.Time) tea.Msg {
+			return clearStatusMsg{}
+		})
+
 	case key.Matches(msg, a.keys.Export):
 		if !a.exporting {
 			a.exporting = true
@@ -526,7 +537,7 @@ func (a App) render() string {
 	} else {
 		hintBar = th.DimS.Render(
 			"  ← →: seek  h l: jump 5s  m: mark  M: del  " +
-				"tab: seg  c: cut  +/−: speed  space: play  e: export  q: quit",
+				"tab: seg  c: cut  +/−: speed  space: play  s: save  e: export  q: quit",
 		)
 	}
 

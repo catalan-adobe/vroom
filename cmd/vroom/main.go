@@ -14,11 +14,17 @@ import (
 	"github.com/catalan-adobe/vroom/internal/video"
 )
 
+
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "vedit: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 func run() error {
@@ -38,6 +44,16 @@ func run() error {
 	}
 
 	proj := model.NewProject(path, info.Duration, info.FPS, info.Width, info.Height)
+
+	// Auto-load saved state if a .vroom file exists alongside the video.
+	if sp := model.SavePath(path); fileExists(sp) {
+		if err := proj.Load(sp); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not load %s: %v\n", sp, err)
+		} else {
+			fmt.Fprintf(os.Stderr, "Resumed from %s\n", sp)
+		}
+	}
+
 	app := tui.New(proj)
 
 	p := tea.NewProgram(app)
