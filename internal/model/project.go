@@ -142,7 +142,7 @@ func (p *Project) AdjustSpeed(segIdx int, delta float64) {
 }
 
 // OutputDuration returns the total duration of the edited output:
-// CUT segments are excluded, speed multipliers compress or stretch time.
+// CUT segments are excluded; speed multipliers compress or stretch time.
 func (p *Project) OutputDuration() float64 {
 	var total float64
 	for _, s := range p.Segments() {
@@ -155,21 +155,32 @@ func (p *Project) OutputDuration() float64 {
 
 // OutputPosition returns the position in the edited output that
 // corresponds to cursor t in the original video.
-// CUT segments contribute 0; speed segments compress/stretch time.
+//
+// Rule: iterate segments in order, accumulating output time.
+//   - CUT past the cursor  → skip (contributes 0 to output)
+//   - CUT containing cursor → stop; cursor is inside excised material
+//   - KEEP/speed fully before cursor → add full output duration
+//   - KEEP/speed containing cursor → add partial output duration; stop
 func (p *Project) OutputPosition(t float64) float64 {
 	var pos float64
 	for _, s := range p.Segments() {
 		if t <= s.Start {
-			break
+			break // cursor hasn’t reached this segment yet
 		}
 		if s.Op == Cut {
-			continue
+			if t < s.End {
+				break // cursor is inside a CUT; stop accumulating
+			}
+			continue // cursor is past this CUT; 0 output contribution
 		}
-		end := s.End
-		if t < end {
-			end = t
+		// KEEP or speed segment.
+		if t < s.End {
+			// Cursor is inside this segment — add partial then stop.
+			pos += (t - s.Start) / s.Speed
+			break
 		}
-		pos += (end - s.Start) / s.Speed
+		// Cursor is past this segment — add full output duration.
+		pos += (s.End - s.Start) / s.Speed
 	}
 	return pos
 }
