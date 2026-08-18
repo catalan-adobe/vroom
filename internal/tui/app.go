@@ -441,13 +441,17 @@ func (a App) sendFrameCmd(png []byte) tea.Cmd {
 	boxLeft := (a.width - pW - 2) / 2 // centre the box horizontally
 	// Frame inside the border: col = boxLeft+2 (1-indexed), row = topPad+3.
 	frame := render.Frame(png, pW, pH, a.topPad()+3, boxLeft+2)
-	// Combine delete + frame into one tea.Raw to avoid a flash between
-	// them. Then park the cursor at bottom-left so bubbletea's diff
-	// renderer has a known cursor position for its next View update.
-	// Without this park, relative cursor moves in the diff renderer
-	// land at wrong rows, leaving ghost content from previous layouts.
+	// tea.ClearScreen forces a full repaint before the Kitty frame.
+	// Without it, bubbletea's diff renderer skips rows it believes
+	// are unchanged, leaving ghost content from previous layouts
+	// (e.g. old timeline rows now in the padding area after a resize).
+	// Stale frames are already filtered, so this only fires once per
+	// resting cursor position — not on every key press.
 	cursorPark := fmt.Sprintf("\x1b[%d;1H", a.height)
-	return tea.Raw(render.DeleteAll() + frame + cursorPark)
+	return tea.Sequence(
+		tea.ClearScreen,
+		tea.Raw(render.DeleteAll()+frame+cursorPark),
+	)
 }
 
 // ─── Render ───────────────────────────────────────────────────────────────────
