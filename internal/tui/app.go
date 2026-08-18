@@ -53,9 +53,8 @@ type App struct {
 	activeSeg int     // index of the currently focused segment
 	playing   bool    // true while playback is active
 
-	statusMsg   string
-	exporting   bool
-	kittyHeight int // terminal height at last clean frame send; 0 = never sent
+	statusMsg string
+	exporting bool
 }
 
 // ─── Messages ─────────────────────────────────────────────────────────────────
@@ -115,7 +114,6 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		}
 		rawCmd := a.sendFrameCmd(msg.png)
-		a.kittyHeight = a.height // mark this height as clean
 		if a.playing {
 			a.advanceCursor() // timeline-aware: skips CUT, respects speed
 			a.activeSeg = a.segAtCursor()
@@ -443,24 +441,11 @@ func (a App) sendFrameCmd(png []byte) tea.Cmd {
 	boxLeft := (a.width - pW - 2) / 2 // centre the box horizontally
 	// Frame inside the border: col = boxLeft+2 (1-indexed), row = topPad+3.
 	frame := render.Frame(png, pW, pH, a.topPad()+3, boxLeft+2)
-	cursorPark := fmt.Sprintf("\x1b[%d;1H", a.height)
-	raw := render.DeleteAll() + frame + cursorPark
-
-	if a.kittyHeight == a.height {
-		// Layout is stable — just update the frame, no clear needed.
-		return tea.Raw(raw)
-	}
-	// Terminal height changed since the last clean send (resize / pane
-	// creation). Old content may persist in rows that shifted position.
-	// Use a triple sequence: show new frame, full-clear ghost content
-	// (which also deletes the Kitty image), then re-send the frame.
-	// This flash only happens on actual layout shifts, not during normal
-	// seeking or playback.
-	return tea.Sequence(
-		tea.Raw(raw),
-		tea.ClearScreen,
-		tea.Raw(raw),
-	)
+	// Frame() wraps the Kitty data in DECSC/DECRC (\x1b7...\x1b8):
+	// cursor is saved before the positioning escape and restored after,
+	// so bubbletea's diff renderer always finds the cursor where it left
+	// it — no ghost cells, no ClearScreen, no flash.
+	return tea.Raw(render.DeleteAll() + frame)
 }
 
 // ─── Render ───────────────────────────────────────────────────────────────────

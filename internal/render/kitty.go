@@ -34,13 +34,20 @@ func DeleteAll() string {
 // The image is placed at z=-1 (above the cell background, below text glyphs).
 // Terminal cells with no explicit background colour are transparent to the
 // Kitty layer, so the view's empty preview area shows the frame through.
+//
+// The cursor is saved before moving to the image position and restored
+// after (DECSC/DECRC: \x1b7 / \x1b8). This keeps the terminal cursor
+// exactly where bubbletea left it, so the diff renderer never sees an
+// unexpected position and never writes cells at wrong rows.
 func Frame(png []byte, cols, rows, atRow, atCol int) string {
 	if len(png) == 0 || cols < 1 || rows < 1 {
 		return ""
 	}
 	b64 := base64.StdEncoding.EncodeToString(png)
-	cursor := fmt.Sprintf("\x1b[%d;%dH", atRow, atCol)
-	return cursor + chunked(b64, cols, rows)
+	return "\x1b7" + // DECSC — save cursor
+		fmt.Sprintf("\x1b[%d;%dH", atRow, atCol) + // move to preview
+		chunked(b64, cols, rows) + // Kitty image data
+		"\x1b8" // DECRC — restore cursor
 }
 
 // chunked splits b64 into ≤4096-byte APC chunks per the Kitty
