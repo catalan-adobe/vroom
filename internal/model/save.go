@@ -3,7 +3,9 @@ package model
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"sort"
+	"strings"
 )
 
 // saveFile is the on-disk JSON structure for a vroom project.
@@ -22,9 +24,10 @@ type savedSegment struct {
 }
 
 // SavePath returns the .vroom file path that corresponds to videoPath.
-// e.g. /videos/demo.mp4 → /videos/demo.mp4.vroom
+// e.g. /videos/demo.mp4 → /videos/demo.vroom
 func SavePath(videoPath string) string {
-	return videoPath + ".vroom"
+	ext := filepath.Ext(videoPath)
+	return strings.TrimSuffix(videoPath, ext) + ".vroom"
 }
 
 // Save writes the project's editing state to path as JSON.
