@@ -51,7 +51,8 @@ type App struct {
 
 	cursor    float64 // current playhead position in seconds
 	activeSeg int     // index of the currently focused segment
-	playing   bool    // true while playback is active
+	playing     bool      // true while playback is active
+	lastFrameAt time.Time // wall-clock time the last frame was displayed
 
 	statusMsg string
 	exporting bool
@@ -115,7 +116,16 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		rawCmd := a.sendFrameCmd(msg.png)
 		if a.playing {
-			a.advanceCursor() // timeline-aware: skips CUT, respects speed
+			// Wall-clock advance: move by actual elapsed time so playback
+			// stays at 1× regardless of how long ffmpeg took to extract
+			// the frame (critical for large files with slow keyframe seeks).
+			now := time.Now()
+			elapsed := now.Sub(a.lastFrameAt)
+			if elapsed > 2*time.Second {
+				elapsed = 2 * time.Second // cap: don't jump more than 2s
+			}
+			a.lastFrameAt = now
+			a.advanceCursor(elapsed)
 			a.activeSeg = a.segAtCursor()
 			if !a.playing {
 				return a, rawCmd
@@ -225,6 +235,7 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, a.keys.PlayPause):
 		a.playing = !a.playing
 		if a.playing {
+			a.lastFrameAt = time.Now() // anchor wall-clock for first advance
 			return a, extractFrameCmd(a.project.VideoPath, a.cursor,
 				a.framePixelH())
 		}
@@ -284,15 +295,16 @@ func (a App) segAtCursor() int {
 	return 0
 }
 
-// advanceCursor moves the playback cursor by one frame, honouring the
-// edited timeline:
-//   - KEEP ×1.0 → advance by 1/fps
-//   - Speed ×N  → advance by N/fps
+// advanceCursor moves the playback cursor by the given wall-clock duration,
+// honouring the edited timeline:
+//   - KEEP ×1.0 → advance by elapsed seconds
+//   - Speed ×N  → advance by elapsed × N
 //   - CUT       → jump to the segment's end (skip it entirely)
 //
-// After any advance, consecutive CUT segments are also skipped so the
-// cursor always lands on playable content (or the end of the video).
-func (a *App) advanceCursor() {
+// Using elapsed wall-clock time (not a fixed 1/FPS step) keeps playback
+// at 1× regardless of ffmpeg extraction latency. Critical for large files
+// where keyframe seeks take 200-500 ms.
+func (a *App) advanceCursor(elapsed time.Duration) {
 	segs := a.project.Segments()
 
 	segAt := func(t float64) *model.Segment {
@@ -325,7 +337,7 @@ func (a *App) advanceCursor() {
 		a.cursor = cur.End
 		skipCuts()
 	} else {
-		a.cursor += cur.Speed / a.project.FPS
+		a.cursor += elapsed.Seconds() * cur.Speed
 		skipCuts()
 	}
 
