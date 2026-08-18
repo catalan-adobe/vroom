@@ -108,11 +108,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		rawCmd := a.sendFrameCmd(msg.png)
 		if a.playing {
-			// Advance cursor and request the next frame.
-			a.cursor += 1.0 / a.project.FPS
-			if a.cursor >= a.project.Duration {
-				a.cursor = a.project.Duration
-				a.playing = false
+			a.advanceCursor() // timeline-aware: skips CUT, respects speed
+			a.activeSeg = a.segAtCursor()
+			if !a.playing {
 				return a, rawCmd
 			}
 			return a, tea.Batch(rawCmd,
@@ -266,6 +264,57 @@ func (a App) segAtCursor() int {
 		return len(segs) - 1
 	}
 	return 0
+}
+
+// advanceCursor moves the playback cursor by one frame, honouring the
+// edited timeline:
+//   - KEEP ×1.0 → advance by 1/fps
+//   - Speed ×N  → advance by N/fps
+//   - CUT       → jump to the segment's end (skip it entirely)
+//
+// After any advance, consecutive CUT segments are also skipped so the
+// cursor always lands on playable content (or the end of the video).
+func (a *App) advanceCursor() {
+	segs := a.project.Segments()
+
+	segAt := func(t float64) *model.Segment {
+		for i := range segs {
+			if t >= segs[i].Start && t < segs[i].End {
+				return &segs[i]
+			}
+		}
+		return nil
+	}
+
+	skipCuts := func() {
+		for {
+			s := segAt(a.cursor)
+			if s == nil || s.Op != model.Cut {
+				break
+			}
+			a.cursor = s.End
+		}
+	}
+
+	cur := segAt(a.cursor)
+	if cur == nil {
+		a.cursor = a.project.Duration
+		a.playing = false
+		return
+	}
+
+	if cur.Op == model.Cut {
+		a.cursor = cur.End
+		skipCuts()
+	} else {
+		a.cursor += cur.Speed / a.project.FPS
+		skipCuts()
+	}
+
+	if a.cursor >= a.project.Duration {
+		a.cursor = a.project.Duration
+		a.playing = false
+	}
 }
 
 // previewDims returns (rows, cols) for the inner preview area.
