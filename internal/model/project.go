@@ -141,6 +141,39 @@ func (p *Project) AdjustSpeed(segIdx int, delta float64) {
 	p.speeds[start] = speed
 }
 
+// OutputDuration returns the total duration of the edited output:
+// CUT segments are excluded, speed multipliers compress or stretch time.
+func (p *Project) OutputDuration() float64 {
+	var total float64
+	for _, s := range p.Segments() {
+		if s.Op != Cut {
+			total += (s.End - s.Start) / s.Speed
+		}
+	}
+	return total
+}
+
+// OutputPosition returns the position in the edited output that
+// corresponds to cursor t in the original video.
+// CUT segments contribute 0; speed segments compress/stretch time.
+func (p *Project) OutputPosition(t float64) float64 {
+	var pos float64
+	for _, s := range p.Segments() {
+		if t <= s.Start {
+			break
+		}
+		if s.Op == Cut {
+			continue
+		}
+		end := s.End
+		if t < end {
+			end = t
+		}
+		pos += (end - s.Start) / s.Speed
+	}
+	return pos
+}
+
 func abs64(x float64) float64 {
 	if x < 0 {
 		return -x

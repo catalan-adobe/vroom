@@ -448,8 +448,8 @@ func (a App) render() string {
 		th.BoldS.Render(filepath.Base(a.project.VideoPath))
 	pos := th.MutedS.Render(fmt.Sprintf(
 		"[%s / %s]",
-		th.FormatTime(a.cursor),
-		th.FormatTime(a.project.Duration),
+		th.FormatTime(a.project.OutputPosition(a.cursor)),
+		th.FormatTime(a.project.OutputDuration()),
 	))
 	headerGap := w - lipgloss.Width(title) - lipgloss.Width(pos)
 	if headerGap < 1 {
