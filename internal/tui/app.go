@@ -449,8 +449,8 @@ func (a App) sendFrameCmd(png []byte) tea.Cmd {
 	// resting cursor position — not on every key press.
 	cursorPark := fmt.Sprintf("\x1b[%d;1H", a.height)
 	return tea.Sequence(
-		tea.ClearScreen,
 		tea.Raw(render.DeleteAll()+frame+cursorPark),
+		tea.ClearScreen,
 	)
 }
 
