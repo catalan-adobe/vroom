@@ -106,6 +106,13 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil || len(msg.png) == 0 {
 			return a, nil
 		}
+		// During seeking, discard frames that no longer match the current
+		// cursor. Rapid arrow-key navigation launches many concurrent
+		// goroutines; without this guard every completion sends tea.Raw
+		// cursor movements that accumulate and corrupt bubbletea's layout.
+		if !a.playing && msg.t != a.cursor {
+			return a, nil
+		}
 		rawCmd := a.sendFrameCmd(msg.png)
 		if a.playing {
 			a.advanceCursor() // timeline-aware: skips CUT, respects speed
