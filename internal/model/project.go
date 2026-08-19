@@ -119,9 +119,10 @@ func (p *Project) ToggleCut(segIdx int) {
 	}
 }
 
-// AdjustSpeed changes the speed multiplier for segment at index segIdx
-// by delta. Clamped to [0.25, 4.0].
-func (p *Project) AdjustSpeed(segIdx int, delta float64) {
+// SetSpeedStep multiplies the segment speed by factor (use 2.0 to double,
+// 0.5 to halve). Speeds follow a 2^N progression with no upper limit.
+// Floor is 2^-6 (1/64) to avoid near-zero durations in the output.
+func (p *Project) SetSpeedStep(segIdx int, factor float64) {
 	segs := p.Segments()
 	if segIdx < 0 || segIdx >= len(segs) {
 		return
@@ -131,12 +132,10 @@ func (p *Project) AdjustSpeed(segIdx int, delta float64) {
 	if speed == 0 {
 		speed = 1.0
 	}
-	speed += delta
-	if speed < 0.25 {
-		speed = 0.25
-	}
-	if speed > 4.0 {
-		speed = 4.0
+	speed *= factor
+	const minSpeed = 1.0 / 64 // 2^-6 — already absurdly slow
+	if speed < minSpeed {
+		speed = minSpeed
 	}
 	p.speeds[start] = speed
 }

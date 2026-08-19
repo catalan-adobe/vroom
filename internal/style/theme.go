@@ -28,16 +28,19 @@ var (
 	DangerS = lipgloss.NewStyle().Foreground(Danger).Bold(true)
 )
 
-// SpeedColor returns a terminal colour for the given speed multiplier.
-//
-//	1.0       → neutral gray  (#AAAAAA)
-//	< 1.0     → orange, more saturated the slower  (0.25× = #FF6600)
-//	> 1.0     → green, more saturated the faster   (4×   = #00EE55)
-//
-// A slight non-linear ramp (t^0.7) is applied so even small speed
-// changes produce a visible colour shift.
 // SpeedColorHex returns a hex colour string for the given speed multiplier.
 // Call lipgloss.Color(th.SpeedColorHex(s)) to use as a lipgloss foreground.
+//
+// Colour mapping on a log2 scale so each ×2 / ÷2 step produces the same
+// visual shift regardless of the current speed:
+//
+//	×1.0        → neutral gray   #AAAAAA
+//	×0.5 / ÷2   → mild orange
+//	×0.25 / ÷4  → bright orange  #FF6600  (t = 1 at 3 halvings, i.e. log2 = -3)
+//	×2.0 / ×2   → mild green
+//	×8.0 / ×3   → bright green   #00EE55  (t = 1 at 3 doublings, i.e. log2 = +3)
+//
+// Saturates beyond ±3 doublings; further steps stay at the extreme colour.
 func SpeedColorHex(speed float64) string {
 	const (
 		nR, nG, nB = 0xAA, 0xAA, 0xAA // neutral  #AAAAAA
@@ -54,17 +57,24 @@ func SpeedColorHex(speed float64) string {
 		}
 		return int(v + 0.5)
 	}
+	if speed <= 0 {
+		return fmt.Sprintf("#%02X%02X%02X", sR, sG, sB)
+	}
+	// log2 of speed: negative = slower, positive = faster.
+	// Normalise to [-1, 1] over ±3 doublings then apply t^0.7 ramp.
+	l := math.Log2(speed)
+	const span = 3.0
 	switch {
-	case speed < 1.0:
-		t := math.Min((1.0-speed)/0.75, 1.0)
+	case l < 0:
+		t := math.Min(-l/span, 1.0)
 		t = math.Pow(t, 0.7)
-			return fmt.Sprintf("#%02X%02X%02X",
+		return fmt.Sprintf("#%02X%02X%02X",
 			clampLerp(nR, sR, t),
 			clampLerp(nG, sG, t),
 			clampLerp(nB, sB, t),
 		)
-	case speed > 1.0:
-		t := math.Min((speed-1.0)/3.0, 1.0)
+	case l > 0:
+		t := math.Min(l/span, 1.0)
 		t = math.Pow(t, 0.7)
 		return fmt.Sprintf("#%02X%02X%02X",
 			clampLerp(nR, fR, t),

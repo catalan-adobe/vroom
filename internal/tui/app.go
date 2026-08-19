@@ -247,11 +247,11 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case key.Matches(msg, a.keys.SpeedUp):
-		a.project.AdjustSpeed(a.activeSeg, 0.25)
+		a.project.SetSpeedStep(a.activeSeg, 2.0)
 		return a, nil
 
 	case key.Matches(msg, a.keys.SpeedDown):
-		a.project.AdjustSpeed(a.activeSeg, -0.25)
+		a.project.SetSpeedStep(a.activeSeg, 0.5)
 		return a, nil
 
 	case key.Matches(msg, a.keys.ToggleFrameMode):
