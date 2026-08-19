@@ -302,10 +302,10 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-// fmtFrame converts a time in seconds to a compact frame-number string.
-// Numbers ≥1000 use K-notation (e.g. 36000 → "36K", 1800 → "1.8K") so
-// ruler labels stay as narrow as timestamp labels on long videos.
-func fmtFrame(t, fps float64) string {
+// fmtFrameCompact converts a time to a compact frame string using K-notation
+// for numbers ≥1000 (e.g. 36000 → "36K", 1800 → "1.8K").
+// Used for ruler tick labels where horizontal space is tight.
+func fmtFrameCompact(t, fps float64) string {
 	f := int(t * fps)
 	if f < 1000 {
 		return fmt.Sprintf("%d", f)
@@ -317,11 +317,17 @@ func fmtFrame(t, fps float64) string {
 	return fmt.Sprintf("%.1fK", k)
 }
 
-// fmtPos formats a position (seconds) as either a timestamp or a frame
+// fmtFrameFull converts a time to a plain frame number string with no
+// abbreviation — used where space is ample (header, segInfo).
+func fmtFrameFull(t, fps float64) string {
+	return fmt.Sprintf("%d", int(t*fps))
+}
+
+// fmtPos formats a position (seconds) as either a timestamp or a full frame
 // number depending on the app's display mode.
 func (a App) fmtPos(t float64) string {
 	if a.frameMode {
-		return fmtFrame(t, a.project.FPS)
+		return fmtFrameFull(t, a.project.FPS)
 	}
 	return th.FormatTime(t)
 }
@@ -754,7 +760,7 @@ func renderTimeline(proj *model.Project, cursor float64, activeSeg, width int, f
 	// frame number depending on the display mode.
 	rulerLabel := func(t float64) string {
 		if frameMode {
-			return fmtFrame(t, proj.FPS)
+			return fmtFrameCompact(t, proj.FPS)
 		}
 		return th.FormatTime(t)
 	}
