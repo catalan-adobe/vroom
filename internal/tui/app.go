@@ -626,11 +626,17 @@ func (a App) render() string {
 		} else {
 			opLabel = lipgloss.NewStyle().Foreground(th.Success).Bold(true).Render("KEEP")
 		}
+		sourceDur := s.End - s.Start
+		var outDur float64
+		if s.Op != model.Cut {
+			outDur = sourceDur / s.Speed
+		}
 		segInfo = fmt.Sprintf(
-			"  Seg %d/%d  %s–%s  %s  speed: ×%.2f",
+			"  Seg %d/%d  %s–%s  %s  speed: ×%.2f  dur: %s",
 			a.activeSeg+1, len(segs),
 			a.fmtPos(s.Start), a.fmtPos(s.End),
 			opLabel, s.Speed,
+			a.fmtPos(outDur),
 		)
 	}
 
