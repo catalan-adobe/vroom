@@ -51,8 +51,20 @@ internal/
 The hint bar renders the full ladder with the active step highlighted: `1f · [1s] · 10s · 1min`. `stepIdx` starts at 1 (coarse-but-not-glacial default).
 
 ### Timeline-aware playback
-- `advanceCursor()` advances in original-video time respecting the edited timeline: KEEP segments advance by `speed/FPS`, CUT segments jump to `segment.End`.
+- `advanceCursor(elapsed time.Duration)` advances by **wall-clock elapsed time × segment speed**, not by a fixed `1/FPS` step. This keeps playback at true 1× regardless of how long ffmpeg takes to extract each frame — critical for large files where keyframe seeks take 200–500 ms.
+- `lastFrameAt` is set when play starts; each `frameMsg` measures `time.Since(lastFrameAt)`, capped at 2s to prevent large jumps after stalls.
+- CUT segments are skipped immediately (jump to `segment.End`); consecutive CUTs are also skipped.
 - Stale frame filter: `if !a.playing && msg.t != a.cursor { return a, nil }` — discards frames from goroutines launched by earlier seek positions.
+
+### Frame / time display toggle
+- Press `f` to toggle `frameMode bool` between timestamp and frame-number display.
+- Affects: ruler tick labels, header position/duration, segInfo segment start/end.
+- Two formatters keep ruler labels compact while full values appear where space allows:
+  - `fmtFrameCompact(t, fps)` — K-notation for ruler ticks (`1.8K`, `36K`); same width as timestamps on long videos.
+  - `fmtFrameFull(t, fps)` — plain integer (`36000`) for header and segInfo where space is ample.
+- `fmtPos(t)` dispatches to `fmtFrameFull` or `th.FormatTime` based on `frameMode`.
+- Frame numbers are **never stored in `.vroom`** — they are always derivable as `floor(time × FPS)`. FPS is a property of the source video file (from ffprobe), not of the edit. Storing frames would also introduce round-trip precision loss and break if the video is re-encoded at a different FPS.
+- Go's `encoding/json` uses shortest-repr (Ryu algorithm) for float64, so `5.2` round-trips as `5.2` — no serialisation drift.
 
 ### Segment strip rendering
 - Uses **raw ANSI escape codes** (`\x1b[48;2;R;G;Bm`) for background-coloured bars, NOT lipgloss per-segment styles. Lipgloss `Width(w)` misbehaves at small values (1–3 cols), causing lines to overflow and wrap to wrong rows.
