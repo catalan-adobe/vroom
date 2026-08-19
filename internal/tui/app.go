@@ -54,6 +54,9 @@ type App struct {
 	playing     bool      // true while playback is active
 	lastFrameAt time.Time // wall-clock time the last frame was displayed
 
+	steps    []float64 // seek step ladder (seconds), computed from duration
+	stepIdx  int       // index into steps; ↑ increases, ↓ decreases
+
 	statusMsg string
 	exporting bool
 }
@@ -71,12 +74,32 @@ type clearStatusMsg struct{}
 
 // ─── Constructor ──────────────────────────────────────────────────────────────
 
+// seekSteps computes a duration-appropriate step ladder for timeline
+// navigation. The finest step is always 1 frame; coarser steps scale with
+// the video length so every tier is useful regardless of duration.
+func seekSteps(duration, fps float64) []float64 {
+	oneFrame := 1.0 / fps
+	switch {
+	case duration < 2*60: // < 2 min
+		return []float64{oneFrame, 1, 5, 30}
+	case duration < 10*60: // 2–10 min
+		return []float64{oneFrame, 1, 10, 60}
+	case duration < 60*60: // 10–60 min
+		return []float64{oneFrame, 2, 30, 5 * 60}
+	default: // > 1 hr
+		return []float64{oneFrame, 5, 60, 10 * 60}
+	}
+}
+
 // New creates the App from a probed project.
 func New(proj *model.Project) App {
+	steps := seekSteps(proj.Duration, proj.FPS)
 	return App{
 		project: proj,
 		keys:    defaultKeyMap(),
 		kitty:   render.Supported(),
+		steps:   steps,
+		stepIdx: 1, // start at second tier (1–2 s) — frame-accurate but not glacial
 	}
 }
 
@@ -172,13 +195,19 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return a, tea.Quit
 
 	case key.Matches(msg, a.keys.SeekLeft):
-		return a.seek(-0.5)
+		return a.seek(-a.steps[a.stepIdx])
 	case key.Matches(msg, a.keys.SeekRight):
-		return a.seek(0.5)
-	case key.Matches(msg, a.keys.SeekBigLeft):
-		return a.seek(-5)
-	case key.Matches(msg, a.keys.SeekBigRight):
-		return a.seek(5)
+		return a.seek(a.steps[a.stepIdx])
+	case key.Matches(msg, a.keys.StepUp):
+		if a.stepIdx < len(a.steps)-1 {
+			a.stepIdx++
+		}
+		return a, nil
+	case key.Matches(msg, a.keys.StepDown):
+		if a.stepIdx > 0 {
+			a.stepIdx--
+		}
+		return a, nil
 
 	case key.Matches(msg, a.keys.AddMark):
 		a.project.AddMark(a.cursor)
@@ -268,6 +297,25 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+// fmtStep formats a step duration as a compact human-readable string.
+func fmtStep(s float64) string {
+	switch {
+	case s < 1:
+		return "1f"
+	case s < 60:
+		if s == float64(int(s)) {
+			return fmt.Sprintf("%ds", int(s))
+		}
+		return fmt.Sprintf("%.1fs", s)
+	default:
+		m := int(s) / 60
+		if int(s)%60 == 0 {
+			return fmt.Sprintf("%dm", m)
+		}
+		return fmt.Sprintf("%dm%ds", m, int(s)%60)
+	}
+}
 
 func (a App) seek(delta float64) (App, tea.Cmd) {
 	a.cursor += delta
@@ -553,14 +601,24 @@ func (a App) render() string {
 	}
 
 	// ── Hint / status bar ───────────────────────────────────────────────────
+	// Build step ladder display: dim inactive steps, accent the active one.
+	stepParts := make([]string, len(a.steps))
+	for i, s := range a.steps {
+		label := fmtStep(s)
+		if i == a.stepIdx {
+			stepParts[i] = th.AccentS.Render("[" + label + "]")
+		} else {
+			stepParts[i] = th.DimS.Render(label)
+		}
+	}
+	stepLadder := strings.Join(stepParts, th.DimS.Render("·"))
+
 	var hintBar string
 	if a.statusMsg != "" {
 		hintBar = "  " + th.AccentS.Render(a.statusMsg)
 	} else {
-		hintBar = th.DimS.Render(
-			"  ← →: seek  h l: jump 5s  m: mark  M: del  " +
-				"tab: seg  c: cut  +/−: speed  space: play  s: save  e: export  q: quit",
-		)
+		hintBar = "  " + stepLadder +
+			th.DimS.Render("  ↑↓:step  ←→:seek  m:mark  M:del  tab:seg  c:cut  +−:speed  space:play  e:export  q:quit")
 	}
 
 	// Pad short lines to the full terminal width so stale characters from a

@@ -36,6 +36,19 @@ internal/
 - Preview box is **centred horizontally**, sized to match the video aspect ratio: `cols = rows × videoAR / cellAR` (cellAR ≈ 0.5, i.e. cells are ~2× taller than wide).
 - **DECSC/DECRC cursor save-restore** (`\x1b7` / `\x1b8`) wrap every Kitty positioning escape. This is critical — see Pitfalls below.
 
+### Step-based timeline navigation
+
+`←/→` seek by the currently selected step. `↑/↓` cycle the step up or down through a duration-appropriate ladder — floor is always 1 frame, ceiling scales with video length:
+
+| Duration | Steps |
+|---|---|
+| < 2 min | 1f · 1s · 5s · 30s |
+| 2–10 min | 1f · 1s · 10s · 1min |
+| 10–60 min | 1f · 2s · 30s · 5min |
+| > 1 hr | 1f · 5s · 1min · 10min |
+
+The hint bar renders the full ladder with the active step highlighted: `1f · [1s] · 10s · 1min`. `stepIdx` starts at 1 (coarse-but-not-glacial default).
+
 ### Timeline-aware playback
 - `advanceCursor()` advances in original-video time respecting the edited timeline: KEEP segments advance by `speed/FPS`, CUT segments jump to `segment.End`.
 - Stale frame filter: `if !a.playing && msg.t != a.cursor { return a, nil }` — discards frames from goroutines launched by earlier seek positions.
