@@ -37,7 +37,7 @@ import (
 
 const (
 	fixedRows      = 9  // rows excluding preview and padding
-	maxPreviewRows = 20 // hard cap: preview never taller than this
+	maxPreviewRows = 40 // hard cap: preview never taller than this
 )
 
 // App is the root Bubble Tea model.
