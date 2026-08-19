@@ -3,7 +3,6 @@ package tui
 
 import (
 	"fmt"
-	"math"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -55,7 +54,8 @@ type App struct {
 	playing     bool      // true while playback is active
 	lastFrameAt time.Time // wall-clock time the last frame was displayed
 
-	stepIdx int // seek step index; step = 1f (idx=0) or 2^(idx-1) seconds (idx>0)
+	steps   []float64 // seek step ladder (seconds), computed from duration
+	stepIdx int       // index into steps; ↑ increases, ↓ decreases
 
 	frameMode bool // true → display frame numbers instead of timestamps
 
@@ -76,25 +76,30 @@ type clearStatusMsg struct{}
 
 // ─── Constructor ──────────────────────────────────────────────────────────────
 
-// seekStep returns the seek distance in seconds for the given stepIdx.
-// idx 0  → 1 frame (1/FPS)
-// idx N>0 → 2^(N-1) seconds  (1s, 2s, 4s, 8s, 16s, …)
-// There is no upper cap — the user can keep pressing ↑ to double the step
-// as far as they like; the seek itself clamps to [0, duration].
-func seekStep(idx int, fps float64) float64 {
-	if idx <= 0 {
-		return 1.0 / fps
+// seekSteps computes a duration-appropriate step ladder for timeline
+// navigation. The finest step is always 1 frame; coarser steps scale with
+// the video length so every tier is useful regardless of duration.
+func seekSteps(duration, fps float64) []float64 {
+	oneFrame := 1.0 / fps
+	switch {
+	case duration < 10*60: // < 10 min — 4 steps
+		return []float64{oneFrame, 1, 5, 30}
+	case duration < 60*60: // 10 min – 1 hr — 5 steps
+		return []float64{oneFrame, 1, 10, 60, 5 * 60}
+	default: // > 1 hr — 5 steps
+		return []float64{oneFrame, 1, 30, 5 * 60, 20 * 60}
 	}
-	return math.Pow(2, float64(idx-1))
 }
 
 // New creates the App from a probed project.
 func New(proj *model.Project) App {
+	steps := seekSteps(proj.Duration, proj.FPS)
 	return App{
 		project: proj,
 		keys:    defaultKeyMap(),
 		kitty:   render.Supported(),
-		stepIdx: 1, // start at 1s (2^0) — usable out of the box
+		steps:   steps,
+		stepIdx: 1, // start at second tier — usable out of the box
 	}
 }
 
@@ -190,11 +195,13 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return a, tea.Quit
 
 	case key.Matches(msg, a.keys.SeekLeft):
-		return a.seek(-seekStep(a.stepIdx, a.project.FPS))
+		return a.seek(-a.steps[a.stepIdx])
 	case key.Matches(msg, a.keys.SeekRight):
-		return a.seek(seekStep(a.stepIdx, a.project.FPS))
+		return a.seek(a.steps[a.stepIdx])
 	case key.Matches(msg, a.keys.StepUp):
-		a.stepIdx++
+		if a.stepIdx < len(a.steps)-1 {
+			a.stepIdx++
+		}
 		return a, nil
 	case key.Matches(msg, a.keys.StepDown):
 		if a.stepIdx > 0 {
@@ -628,20 +635,16 @@ func (a App) render() string {
 	}
 
 	// ── Hint / status bar ───────────────────────────────────────────────────
-	// Step display: show prev·[current]·next for context.
-	// Since the ladder is infinite (2^N), we only show the surrounding tier.
-	curStep := fmtStep(seekStep(a.stepIdx, a.project.FPS))
-	var stepLadder string
-	if a.stepIdx > 0 {
-		prevStep := fmtStep(seekStep(a.stepIdx-1, a.project.FPS))
-		stepLadder = th.DimS.Render(prevStep+"·") +
-			th.AccentS.Render("["+curStep+"]") +
-			th.DimS.Render("·"+fmtStep(seekStep(a.stepIdx+1, a.project.FPS)))
-	} else {
-		// At floor (1f): no previous tier
-		stepLadder = th.AccentS.Render("["+curStep+"]") +
-			th.DimS.Render("·"+fmtStep(seekStep(a.stepIdx+1, a.project.FPS)))
+	// Step ladder: show all tiers, highlight the active one.
+	stepParts := make([]string, len(a.steps))
+	for i, s := range a.steps {
+		if i == a.stepIdx {
+			stepParts[i] = th.AccentS.Render("[" + fmtStep(s) + "]")
+		} else {
+			stepParts[i] = th.DimS.Render(fmtStep(s))
+		}
 	}
+	stepLadder := strings.Join(stepParts, th.DimS.Render("·"))
 
 	// Frame-mode indicator shown next to the step ladder.
 	var modeTag string
