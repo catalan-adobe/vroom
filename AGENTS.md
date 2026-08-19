@@ -42,10 +42,11 @@ internal/
 
 | Duration | Steps |
 |---|---|
-| < 2 min | 1f · 1s · 5s · 30s |
-| 2–10 min | 1f · 1s · 10s · 1min |
-| 10–60 min | 1f · 2s · 30s · 5min |
-| > 1 hr | 1f · 5s · 1min · 10min |
+| < 10 min | 1f · 1s · 5s · 30s |
+| 10 min – 1 hr | 1f · 1s · 10s · 1min · 5min |
+| > 1 hr | 1f · 1s · 30s · 5min · 20min |
+
+`1f` and `1s` are always the two finest steps regardless of duration.
 
 The hint bar renders the full ladder with the active step highlighted: `1f · [1s] · 10s · 1min`. `stepIdx` starts at 1 (coarse-but-not-glacial default).
 

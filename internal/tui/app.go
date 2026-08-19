@@ -80,14 +80,12 @@ type clearStatusMsg struct{}
 func seekSteps(duration, fps float64) []float64 {
 	oneFrame := 1.0 / fps
 	switch {
-	case duration < 2*60: // < 2 min
+	case duration < 10*60: // < 10 min — 4 steps
 		return []float64{oneFrame, 1, 5, 30}
-	case duration < 10*60: // 2–10 min
-		return []float64{oneFrame, 1, 10, 60}
-	case duration < 60*60: // 10–60 min
-		return []float64{oneFrame, 2, 30, 5 * 60}
-	default: // > 1 hr
-		return []float64{oneFrame, 5, 60, 10 * 60}
+	case duration < 60*60: // 10 min – 1 hr — 5 steps
+		return []float64{oneFrame, 1, 10, 60, 5 * 60}
+	default: // > 1 hr — 5 steps
+		return []float64{oneFrame, 1, 30, 5 * 60, 20 * 60}
 	}
 }
 
