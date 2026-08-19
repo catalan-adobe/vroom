@@ -3,21 +3,22 @@ package tui
 import "charm.land/bubbles/v2/key"
 
 type keyMap struct {
-	SeekLeft  key.Binding
-	SeekRight key.Binding
-	StepUp    key.Binding
-	StepDown  key.Binding
-	AddMark   key.Binding
-	DelMark   key.Binding
-	NextSeg   key.Binding
-	PrevSeg   key.Binding
-	ToggleCut key.Binding
-	SpeedUp   key.Binding
-	SpeedDown key.Binding
-	PlayPause key.Binding
-	Save      key.Binding
-	Export    key.Binding
-	Quit      key.Binding
+	SeekLeft        key.Binding
+	SeekRight       key.Binding
+	StepUp          key.Binding
+	StepDown        key.Binding
+	AddMark         key.Binding
+	DelMark         key.Binding
+	NextSeg         key.Binding
+	PrevSeg         key.Binding
+	ToggleCut       key.Binding
+	SpeedUp         key.Binding
+	SpeedDown       key.Binding
+	PlayPause       key.Binding
+	ToggleFrameMode key.Binding
+	Save            key.Binding
+	Export          key.Binding
+	Quit            key.Binding
 }
 
 func defaultKeyMap() keyMap {
@@ -33,8 +34,9 @@ func defaultKeyMap() keyMap {
 		ToggleCut: key.NewBinding(key.WithKeys("c"),          key.WithHelp("c", "cut/keep")),
 		SpeedUp:   key.NewBinding(key.WithKeys("+", "="),     key.WithHelp("+/−", "speed")),
 		SpeedDown: key.NewBinding(key.WithKeys("-"),          key.WithHelp("", "")),
-		PlayPause: key.NewBinding(key.WithKeys("space"),      key.WithHelp("space", "play")),
-		Save:      key.NewBinding(key.WithKeys("s"),          key.WithHelp("s", "save")),
+		PlayPause:       key.NewBinding(key.WithKeys("space"),      key.WithHelp("space", "play")),
+		ToggleFrameMode: key.NewBinding(key.WithKeys("f"),          key.WithHelp("f", "frames/time")),
+		Save:            key.NewBinding(key.WithKeys("s"),          key.WithHelp("s", "save")),
 		Export:    key.NewBinding(key.WithKeys("e"),          key.WithHelp("e", "export")),
 		Quit:      key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 	}

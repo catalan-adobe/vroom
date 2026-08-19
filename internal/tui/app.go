@@ -57,6 +57,8 @@ type App struct {
 	steps    []float64 // seek step ladder (seconds), computed from duration
 	stepIdx  int       // index into steps; ↑ increases, ↓ decreases
 
+	frameMode bool // true → display frame numbers instead of timestamps
+
 	statusMsg string
 	exporting bool
 }
@@ -259,6 +261,10 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		a.project.AdjustSpeed(a.activeSeg, -0.25)
 		return a, nil
 
+	case key.Matches(msg, a.keys.ToggleFrameMode):
+		a.frameMode = !a.frameMode
+		return a, nil
+
 	case key.Matches(msg, a.keys.PlayPause):
 		a.playing = !a.playing
 		if a.playing {
@@ -295,6 +301,30 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+// fmtFrame converts a time in seconds to a compact frame-number string.
+// Numbers ≥1000 use K-notation (e.g. 36000 → "36K", 1800 → "1.8K") so
+// ruler labels stay as narrow as timestamp labels on long videos.
+func fmtFrame(t, fps float64) string {
+	f := int(t * fps)
+	if f < 1000 {
+		return fmt.Sprintf("%d", f)
+	}
+	k := float64(f) / 1000.0
+	if k == float64(int(k)) {
+		return fmt.Sprintf("%dK", int(k))
+	}
+	return fmt.Sprintf("%.1fK", k)
+}
+
+// fmtPos formats a position (seconds) as either a timestamp or a frame
+// number depending on the app's display mode.
+func (a App) fmtPos(t float64) string {
+	if a.frameMode {
+		return fmtFrame(t, a.project.FPS)
+	}
+	return th.FormatTime(t)
+}
 
 // fmtStep formats a step duration as a compact human-readable string.
 func fmtStep(s float64) string {
@@ -527,8 +557,8 @@ func (a App) render() string {
 		th.BoldS.Render(filepath.Base(a.project.VideoPath))
 	pos := th.MutedS.Render(fmt.Sprintf(
 		"[%s / %s]",
-		th.FormatTime(a.project.OutputPosition(a.cursor)),
-		th.FormatTime(a.project.OutputDuration()),
+		a.fmtPos(a.project.OutputPosition(a.cursor)),
+		a.fmtPos(a.project.OutputDuration()),
 	))
 	headerGap := w - lipgloss.Width(title) - lipgloss.Width(pos)
 	if headerGap < 1 {
@@ -578,7 +608,7 @@ func (a App) render() string {
 	preview := strings.Join(previewLines, "\n")
 
 	// ── Timeline ────────────────────────────────────────────────────────────
-	timeline := renderTimeline(a.project, a.cursor, a.activeSeg, w)
+	timeline := renderTimeline(a.project, a.cursor, a.activeSeg, w, a.frameMode)
 
 	// ── Segment info ────────────────────────────────────────────────────────
 	var segInfo string
@@ -593,7 +623,7 @@ func (a App) render() string {
 		segInfo = fmt.Sprintf(
 			"  Seg %d/%d  %s–%s  %s  speed: ×%.2f",
 			a.activeSeg+1, len(segs),
-			th.FormatTime(s.Start), th.FormatTime(s.End),
+			a.fmtPos(s.Start), a.fmtPos(s.End),
 			opLabel, s.Speed,
 		)
 	}
@@ -611,11 +641,19 @@ func (a App) render() string {
 	}
 	stepLadder := strings.Join(stepParts, th.DimS.Render("·"))
 
+	// Frame-mode indicator shown next to the step ladder.
+	var modeTag string
+	if a.frameMode {
+		modeTag = "  " + th.AccentS.Render("[f]") + th.DimS.Render(" frames")
+	} else {
+		modeTag = "  " + th.DimS.Render("[f] time")
+	}
+
 	var hintBar string
 	if a.statusMsg != "" {
 		hintBar = "  " + th.AccentS.Render(a.statusMsg)
 	} else {
-		hintBar = "  " + stepLadder +
+		hintBar = "  " + stepLadder + modeTag +
 			th.DimS.Render("  ↑↓:step  ←→:seek  m:mark  M:del  tab:seg  c:cut  +−:speed  space:play  e:export  q:quit")
 	}
 
@@ -691,7 +729,7 @@ func hexRGB(hex string) (int, int, int) {
 
 // ─── Timeline renderer ────────────────────────────────────────────────────────
 
-func renderTimeline(proj *model.Project, cursor float64, activeSeg, width int) string {
+func renderTimeline(proj *model.Project, cursor float64, activeSeg, width int, frameMode bool) string {
 	dur := proj.Duration
 	segs := proj.Segments()
 	marks := proj.Marks()
@@ -712,11 +750,20 @@ func renderTimeline(proj *model.Project, cursor float64, activeSeg, width int) s
 		return x
 	}
 
-	// ── Line 1: time ruler ──────────────────────────────────────────────────
+	// rulerLabel formats a tick value as either a timestamp or a compact
+	// frame number depending on the display mode.
+	rulerLabel := func(t float64) string {
+		if frameMode {
+			return fmtFrame(t, proj.FPS)
+		}
+		return th.FormatTime(t)
+	}
+
+	// ── Line 1: ruler ─────────────────────────────────────────────────────────
 	ruler := []rune(strings.Repeat("─", width))
 	for i := 0; i <= 5; i++ {
 		t := dur * float64(i) / 5.0
-		label := []rune(th.FormatTime(t))
+		label := []rune(rulerLabel(t))
 		x := toX(t)
 		for j, ch := range label {
 			if x+j < width {
