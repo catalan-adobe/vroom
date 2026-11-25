@@ -1,146 +1,84 @@
 # vroom — Agent Guide
 
-Terminal video editor built with Go + Bubble Tea v2. Cut, trim, and retime video without leaving your shell.
+Terminal video editor in Rust using Ratatui, Crossterm and FFmpeg. Cut, trim,
+and retime video without leaving your shell.
 
 ## Architecture
 
-```
-cmd/vroom/main.go           entry point: ffprobe → load .vroom → launch TUI
-internal/
-  model/
-    project.go              editing state: marks, ops (cut/keep), speeds
-    save.go                 save/load to .vroom JSON file
-  video/
-    probe.go                ffprobe wrapper → Info{Duration, FPS, Width, Height}
-    frames.go               ffmpeg frame extraction (scale=-2:H, PNG pipe)
-    export.go               ffmpeg filter graph: trim+setpts+concat
-  render/
-    kitty.go                Kitty graphics protocol encoder
-  tui/
-    app.go                  root Bubble Tea model + all rendering
-    keys.go                 key bindings
-  style/
-    theme.go                colours, SpeedColorHex gradient, FormatTime
+```text
+src/main.rs            probe source, restore adjacent .vroom sidecar, launch TUI
+src/model.rs           sorted marks, segment edits keyed by source start, output time
+src/model/save.rs      backwards-compatible .vroom JSON persistence
+src/paths.rs           sidecar, export and log filenames
+src/video.rs           ffprobe metadata, asynchronous FFmpeg extraction and export
+src/tui.rs             terminal lifecycle, input and asynchronous media jobs
+src/tui/app.rs         editor actions, wall-clock playback, transient status
+src/tui/view.rs        layout, timeline, segment colors and time/frame formatting
+src/tui/kitty.rs       Kitty PNG placement, chunking and cleanup
+tests/terminal.rs      pseudoterminal and real-media integration tests
 ```
 
-## Key Design Decisions
+## Editing and persistence
 
-### Data model
-- Marks are `[]float64` (sorted timestamps). Segments are derived from marks on each call to `Segments()`.
-- Segment ops and speeds are keyed by **segment start time** (not index). This survives mark add/remove without losing settings.
-- `OutputPosition(t)` and `OutputDuration()` convert original-video time to edited-output time: CUT segments contribute 0, speed segments divide time by `speed`.
-
-### Video preview (Kitty graphics protocol)
-- Preview uses the [Kitty graphics protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/) via `tea.Raw`.
-- Frame bytes are extracted with `ffmpeg scale=-2:H` (preserves aspect ratio; only height is specified).
-- Preview box is **centred horizontally**, sized to match the video aspect ratio: `cols = rows × videoAR / cellAR` (cellAR ≈ 0.5, i.e. cells are ~2× taller than wide).
-- **DECSC/DECRC cursor save-restore** (`\x1b7` / `\x1b8`) wrap every Kitty positioning escape. This is critical — see Pitfalls below.
-
-### Step-based timeline navigation
-
-`←/→` seek by the currently selected step. `↑/↓` cycle the step up or down through a duration-appropriate ladder — floor is always 1 frame, ceiling scales with video length:
-
-| Duration | Steps |
-|---|---|
-| < 10 min | 1f · 1s · 5s · 30s |
-| 10 min – 1 hr | 1f · 1s · 10s · 1min · 5min |
-| > 1 hr | 1f · 1s · 30s · 5min · 20min |
-
-`1f` and `1s` are always the two finest steps regardless of duration.
-
-The hint bar renders the full ladder with the active step highlighted: `1f · [1s] · 10s · 1min`. `stepIdx` starts at 1 (coarse-but-not-glacial default).
-
-### Timeline-aware playback
-- `advanceCursor(elapsed time.Duration)` advances by **wall-clock elapsed time × segment speed**, not by a fixed `1/FPS` step. This keeps playback at true 1× regardless of how long ffmpeg takes to extract each frame — critical for large files where keyframe seeks take 200–500 ms.
-- `lastFrameAt` is set when play starts; each `frameMsg` measures `time.Since(lastFrameAt)`, capped at 2s to prevent large jumps after stalls.
-- CUT segments are skipped immediately (jump to `segment.End`); consecutive CUTs are also skipped.
-- Stale frame filter: `if !a.playing && msg.t != a.cursor { return a, nil }` — discards frames from goroutines launched by earlier seek positions.
-
-### Frame / time display toggle
-- Press `f` to toggle `frameMode bool` between timestamp and frame-number display.
-- Affects: ruler tick labels, header position/duration, segInfo segment start/end.
-- Two formatters keep ruler labels compact while full values appear where space allows:
-  - `fmtFrameCompact(t, fps)` — K-notation for ruler ticks (`1.8K`, `36K`); same width as timestamps on long videos.
-  - `fmtFrameFull(t, fps)` — plain integer (`36000`) for header and segInfo where space is ample.
-- `fmtPos(t)` dispatches to `fmtFrameFull` or `th.FormatTime` based on `frameMode`.
-- Frame numbers are **never stored in `.vroom`** — they are always derivable as `floor(time × FPS)`. FPS is a property of the source video file (from ffprobe), not of the edit. Storing frames would also introduce round-trip precision loss and break if the video is re-encoded at a different FPS.
-- Go's `encoding/json` uses shortest-repr (Ryu algorithm) for float64, so `5.2` round-trips as `5.2` — no serialisation drift.
-
-### Segment strip rendering
-- Uses **raw ANSI escape codes** (`\x1b[48;2;R;G;Bm`) for background-coloured bars, NOT lipgloss per-segment styles. Lipgloss `Width(w)` misbehaves at small values (1–3 cols), causing lines to overflow and wrap to wrong rows.
-- `segBlock()` function + `hexRGB()` helper produce predictable output at every width.
-- Speed colour gradient: neutral gray at ×1.0 → orange at ×0.25, green at ×4.0, with `t^0.7` non-linear ramp.
-
-## Bubble Tea v2 Conventions
-
-- Import path: `charm.land/bubbletea/v2` (NOT `github.com/charmbracelet/bubbletea`). Same for `bubbles` and `lipgloss`.
-- `View()` returns `tea.View` (not `string`). Use `tea.NewView(content)` with `v.AltScreen = true`.
-- Space key binding: `key.WithKeys("space")` — NOT `" "` (literal space). This differs from v1.
-- Key press type: `tea.KeyPressMsg` (not `tea.KeyMsg`).
-
-## Pitfalls
-
-### 1. DECSC/DECRC is mandatory around Kitty frames
-`tea.Raw` moves the terminal cursor invisibly from bubbletea's perspective. The diff renderer then writes subsequent view updates at wrong row offsets, leaving ghost timeline strips, duplicate segInfo rows, or `▶` cursor markers scattered across the marks line.
-
-**Fix:** `\x1b7` (save cursor) before the Kitty positioning escape, `\x1b8` (restore cursor) after the Kitty data — implemented in `render.Frame()`.
-
-### 2. `\x1b[2J` (ClearScreen) deletes Kitty images
-The Kitty protocol spec says placed images survive screen clears, but WezTerm and Ghostty both delete them on `\x1b[2J`. `tea.ClearScreen` causes a visible flash. Use DECSC/DECRC (pitfall 1) instead of ClearScreen to avoid ghost content.
-
-### 3. lipgloss v2 colour type gotcha
-`lipgloss.Color` is `func(s string) color.Color` — a function, not a type. Returning `color.Color` from a helper and passing it to `Foreground()` **silently produces no colour**. Always call `lipgloss.Color()` at the callsite:
-```go
-// WRONG
-func speedColor() color.Color { return lipgloss.Color("#FF6600") }
-st.Foreground(speedColor())          // silently ignored
-
-// RIGHT
-func speedColorHex() string { return "#FF6600" }
-st.Foreground(lipgloss.Color(speedColorHex()))  // works
-```
-
-### 4. lipgloss `Width(w)` breaks at small values
-`lipgloss.NewStyle().Width(w)` with `w = 1–3` produces output wider than the terminal, causing the strip line to wrap onto the next terminal row. This makes timeline content appear at wrong rows and corrupts the diff renderer's model. Use raw ANSI codes for segment blocks (see `segBlock()` in `app.go`).
-
-### 5. ffmpeg frame scaling — always use `scale=-2:H`
-`scale=W:H` forces exact dimensions and **distorts** the video. Use `scale=-2:H` (height only; width auto-computed, rounded to even). Kitty scales the received image to fill the specified `c×r` cell area.
-
-### 6. Stale frames corrupt the diff renderer
-Rapid seeking launches many concurrent `extractFrameCmd` goroutines. Each completion sends `tea.Raw` with cursor movement. Without filtering, these accumulate and corrupt bubbletea's layout. Always discard frames that no longer match the current cursor:
-```go
-if !a.playing && msg.t != a.cursor {
-    return a, nil
-}
-```
-
-### 7. Segment ops/speeds are keyed by start time, not index
-`p.ops[segStart]` and `p.speeds[segStart]` survive mark add/remove. Index-based keys don't — they shift when a mark is inserted before an existing one.
-
-### 8. `OutputPosition` must break after partial segment
-The loop accumulating output position must `break` immediately after adding a partial contribution (cursor inside a segment). Continuing to the next segment and relying on `t <= nextSeg.Start` to break works for non-CUT segments but fails when a CUT appears between two KEEP segments.
-
-## Running / Building
-
-```bash
-go build -o vroom ./cmd/vroom
-./vroom video.mp4          # auto-loads video.vroom if it exists
-```
-
-**Dependencies:** Go 1.24+, `ffmpeg` + `ffprobe` on `$PATH`. Kitty-compatible terminal (Kitty, WezTerm, Ghostty) for video preview; character-mode fallback otherwise.
-
-## Save Format (.vroom)
+- Marks are sorted source timestamps in seconds (`f64`). Derive segments from
+  the marks; keep cut/speed settings keyed by the exact segment start, not the
+  index. Removing a mark leaves its settings available if the same timestamp is
+  reinserted in the session. Only current segments are saved.
+- The cursor and segment boundaries are in **source** time. The header displays
+  **edited output** time: cuts contribute zero, and kept segments divide their
+  duration by speed. Stop accumulating at the segment containing the cursor.
+- The seek ladder starts at `1f · [1s]`. Its coarser tiers are `5s · 30s` for
+  videos under 10 minutes, `10s · 1m · 5m` below one hour, and
+  `30s · 5m · 20m` otherwise. Frame numbers are derived from the source FPS and
+  are never persisted. Speed controls multiply by 2 or ½, with a floor of 1/64×.
+- The `.vroom` format stays at version 1. Positive segment starts restore marks;
+  absent `cut` and missing or zero `speed` mean KEEP and 1×. Use full round-trip
+  float precision. The `video` field is informational: the argument supplied at
+  launch and probed metadata remain authoritative. Save is explicit (`s`).
 
 ```json
 {
   "version": 1,
   "video": "/path/to/video.mp4",
   "segments": [
-    {"start": 0.0},
-    {"start": 5.2, "cut": true},
-    {"start": 10.5, "speed": 2.0}
+    {"start": 0, "speed": 1},
+    {"start": 5.2, "cut": true, "speed": 1},
+    {"start": 10.5, "speed": 2}
   ]
 }
 ```
 
-Marks = all `start > 0`. Missing `cut`/`speed` fields default to `false`/`1.0`.
+## Preview and export
+
+- Resize and seeking supersede an outstanding preview, so stale results cannot
+  repaint a previous timestamp or use old dimensions. Playback advances by
+  elapsed wall-clock time (capped at two seconds per frame) and segment speed,
+  skips cuts, and stops at EOF. Do not advance by a fixed `1/FPS` per extraction.
+- FFmpeg previews are PNGs scaled with `scale=-2:H` (height only, even width,
+  original aspect ratio). The centered preview uses an estimated cell aspect
+  ratio of 0.5 and a maximum of 40 rows.
+- Kitty writes happen **after** the Ratatui text render. Keep the preview's
+  background at the default, place the image at `z=-1`, and wrap the placement
+  in **DECSC/DECRC (`\x1b7` / `\x1b8`)**. Alternate two image IDs so the old
+  frame remains visible while the next image's chunks arrive. Delete the old
+  ID only after the new placement; reusing the active ID or clearing the frame
+  first can flash. Ratatui handles text diffs and viewport resize. The text
+  fallback is used on other terminals.
+- Export snapshots the current edits, not the save file. Use FFmpeg
+  `trim` + `setpts` + `concat`, map only the video stream, and keep the original
+  output extension. Send FFmpeg diagnostics directly to the sibling log so an
+  in-flight export can finish after the editor closes.
+  If all segments are cut, do not invoke FFmpeg or write a log.
+
+## Build and checks
+
+```sh
+cargo build --locked
+cargo run --locked -- video.mp4
+cargo fmt --all --check
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked
+```
+
+Dependencies: Rust 1.88+, `ffmpeg` and `ffprobe` on `PATH`. The Unix integration
+tests create their own media and PTYs; no checked-in binaries or media fixtures.

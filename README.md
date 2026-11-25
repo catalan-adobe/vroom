@@ -1,84 +1,79 @@
 # vroom 🎬
 
-Terminal video editor. Cut, trim, and retime video without leaving your shell.
-
-Built with [Go](https://go.dev) + [Bubble Tea](https://github.com/charmbracelet/bubbletea). Video preview via the [Kitty graphics protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/).
-
-## Demo
-
-```
-vroom  demo.mp4                                        [0:08.1 / 0:26.3]
-────────────────────────────────────────────────────────────────────────
-│                                                                       │
-│                     (video frame preview)                             │
-│                    Kitty / WezTerm / Ghostty                          │
-│                                                                       │
-────────────────────────────────────────────────────────────────────────
-0:00.0          0:05.2          0:10.5          0:15.7          0:21.0
-─────────────────│───────────────│────────────────│─────────────────────▶
- KEEP            ░ ×0.50         ░ CUT            ░ ×2.00               
-────────────────────────────────────────────────────────────────────────
-  Seg 3/4  0:05.2–0:10.5  ×0.50  speed: ×0.50
-  ← →: seek  h l: jump 5s  m: mark  M: del  tab: seg  c: cut  +/−: speed  space: play  e: export  q: quit
-```
-
-The segment strip is colour-coded by speed:
-
-| Colour | Meaning |
-|--------|---------|
-| 🟤 orange → red | Slower than real-time (`×0.25` – `×0.99`) |
-| ⬜ gray | Normal speed (`×1.00`, keep) |
-| 🟢 green | Faster than real-time (`×1.01` – `×4.00`) |
-| 🔴 dark red | Cut (excluded from output) |
+Cut, trim, and retime video without leaving your terminal. vroom is built with Rust,
+[Ratatui](https://ratatui.rs/), and [Crossterm](https://github.com/crossterm-rs/crossterm).
+It uses FFmpeg for preview and export and the
+[Kitty graphics protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/) to show video frames.
 
 ## Requirements
 
-- [Go 1.24+](https://go.dev/dl/)
-- [ffmpeg](https://ffmpeg.org) + ffprobe on `$PATH`
-- A [Kitty](https://sw.kovidgoyal.net/kitty/), [WezTerm](https://wezfurlong.org/wezterm/), or [Ghostty](https://ghostty.org/) terminal for video preview
+- Rust 1.88 or newer and Cargo to build from source
+- `ffmpeg` and `ffprobe` on your `PATH`
+- An interactive terminal. Kitty, WezTerm, and Ghostty display the video preview.
+  On other terminals the preview is a text placeholder; editing and export still work.
 
 ## Install
 
 ```sh
-go install github.com/catalan-adobe/vroom/cmd/vroom@latest
-```
-
-Or build from source:
-
-```sh
 git clone https://github.com/catalan-adobe/vroom
 cd vroom
-go build -o vroom ./cmd/vroom
+cargo install --locked --path .
 ```
+
+To build without installing, run `cargo build --release --locked` and use
+`./target/release/vroom`.
 
 ## Usage
 
 ```sh
-vroom video.mp4
+vroom "my video.mp4"
 ```
 
-Output is written to `video_vroom.mp4` alongside the original when you press `e`.
+1. Seek with `←` / `→` and press `m` to split the source into segments.
+2. Select a segment, then press `c` to cut it or `+` / `-` to change its speed.
+   The timeline shows source time, while the header shows the edited output position and duration.
+3. Press `s` to save your edits to `my video.vroom`. vroom automatically loads that file
+   the next time you open the same video, including project files saved by the Go version.
+   Quitting does **not** save automatically.
+4. Press `e` to render the current edits into `my video_vroom.mp4`. Export keeps the original
+   container extension, overwrites an existing export, and leaves the source untouched.
+   As in the Go version, exports are **video-only** (no audio). FFmpeg diagnostics go into
+   `my video_vroom.log`, including when FFmpeg fails. An export already in progress can
+   finish after you quit the editor.
 
 ## Keybindings
 
 | Key | Action |
-|-----|--------|
-| `←` / `→` | Seek ±0.5s |
-| `h` / `l` | Seek ±5s |
-| `m` | Add mark at cursor |
-| `M` | Remove nearest mark |
-| `tab` / `⇧tab` | Select next / previous segment |
-| `c` | Toggle cut on selected segment |
-| `+` / `-` | Speed ×0.25 up / down |
-| `space` | Play / pause preview |
-| `e` | Export edited video |
-| `q` | Quit |
+|---|---|
+| `←` / `→` | Seek backward / forward by the selected step (default: 1 second) |
+| `↑` / `↓` | Increase / decrease the seek step, from one frame to larger steps that depend on video length |
+| `m` / `M` | Add a mark at the cursor / remove the nearest mark within 1 second |
+| `Tab` / `Shift+Tab` | Go to the start of the next / previous segment |
+| `c` | Toggle cut / keep on the selected segment |
+| `+` or `=` / `-` | Double / halve the selected segment's speed (minimum 1/64×) |
+| `Space` | Play / pause the edited preview |
+| `f` | Toggle time / frame numbers (using the source frame rate) |
+| `s` | Save the `.vroom` project beside the source video |
+| `e` | Export the edited video |
+| `q` / `Ctrl+C` | Quit |
 
-## How it works
+The segment strip is gray at normal speed, orange for slowed segments, green for sped-up segments,
+and dark red for cuts. The selected segment's label is bold.
 
-1. **Add marks** at timestamps to slice the video into segments
-2. **Per segment**: mark it as `CUT` (excluded from output) or adjust its **speed** (`×0.5` slow motion → `×4.0` fast forward)
-3. **Export** — vroom builds an ffmpeg filter graph (`trim` + `setpts` + `concat`) and renders the result
+## Development
+
+```sh
+cargo fmt --all --check
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked
+```
+
+On Unix, `cargo test --locked --test terminal` runs the executable in a pseudoterminal. The
+real-media test decodes preview PNGs to verify seeking and checks that exported frames reflect
+unsaved edits while reopening restores the last save. Controlled FFmpeg shims test pending-frame
+cancellation on seek and resize, playback recovery and cut skipping, and failure paths. The harness
+checks the reconstructed terminal screen and terminal restoration without requiring a desktop
+terminal emulator.
 
 ## License
 

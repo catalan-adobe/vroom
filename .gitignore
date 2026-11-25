@@ -1,10 +1,10 @@
-vedit
+/target/
 dist/
 *.mp4
 *.mov
 *.mkv
 *.webm
 !testdata/
-vroom
+/vroom
 # .vroom files are user-local project saves; not committed
 *.vroom

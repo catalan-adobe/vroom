@@ -1,0 +1,30 @@
+[package]
+name = "vroom"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Cut, trim, and retime video from your terminal"
+license = "MIT"
+repository = "https://github.com/catalan-adobe/vroom"
+publish = false
+
+[dependencies]
+anyhow = "1"
+base64 = "0.22"
+crossterm = "0.29"
+ratatui = { version = "0.30", default-features = false, features = ["crossterm_0_29"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip"] }
+time = { version = "0.3", features = ["formatting"] }
+tokio = { version = "1", features = ["macros", "process", "rt", "signal", "sync", "time"] }
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1", features = ["fs", "stdio", "termios"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[target.'cfg(unix)'.dev-dependencies]
+nix = { version = "0.31", features = ["fs", "poll", "signal", "term"] }
+png = "0.18"
+vt100 = "0.18"
